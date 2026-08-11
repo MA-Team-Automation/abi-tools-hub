@@ -132,6 +132,8 @@ def update_tool(tool: dict) -> str:
     """更新单个仓库：fetch 后 git pull --ff-only。
 
     若工作区有未提交改动或无法 fast-forward，返回中文警告日志，绝不强行覆盖用户改动。
+    若当前检出分支不是配置的主分支（如未合并的功能分支），fetch 照常执行但跳过 pull，
+    避免把主分支代码拉进功能分支。
     """
     path = tool["path"]
     branch = tool.get("branch", "main")
@@ -149,6 +151,13 @@ def update_tool(tool: dict) -> str:
     if r.returncode != 0:
         return f"[{tool['id']}] 警告：git fetch 失败（可能无网络），跳过本次更新：{r.stderr.strip()}"
     logs.append(f"[{tool['id']}] 已 fetch origin/{branch}")
+
+    # 当前检出分支 ≠ 配置主分支时跳过 pull，防止主分支代码进入未合并的功能分支
+    r = _run_git(path, ["rev-parse", "--abbrev-ref", "HEAD"])
+    current = r.stdout.strip() if r.returncode == 0 else ""
+    if current and current != branch:
+        logs.append(f"[{tool['id']}] 当前在 {current} 分支，已跳过拉取（请先合并功能分支）")
+        return "\n".join(logs)
 
     r = _run_git(path, ["pull", "--ff-only", "origin", branch])
     if r.returncode != 0:
