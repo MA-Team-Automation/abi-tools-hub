@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ABI 工具箱</title>
+<style>
+  :root {
+    --accent: #4f46e5;
+    --accent-soft: #eef2ff;
+    --bg: #f5f6f8;
+    --card: #ffffff;
+    --text: #1f2937;
+    --muted: #6b7280;
+    --border: #e5e7eb;
+    --green: #16a34a;
+    --gray: #9ca3af;
+    --amber-bg: #fffbeb;
+    --amber-text: #b45309;
+    --radius: 12px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+      "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+    line-height: 1.6;
+  }
+  .container { max-width: 1120px; margin: 0 auto; padding: 32px 24px 48px; }
+
+  /* 顶部 */
+  header {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 16px;
+    margin-bottom: 28px;
+  }
+  .title-group { flex: 1; min-width: 240px; }
+  h1 { font-size: 26px; font-weight: 700; letter-spacing: 0.5px; }
+  .subtitle { color: var(--muted); font-size: 14px; margin-top: 2px; }
+  .overall {
+    display: inline-flex; align-items: center; gap: 8px;
+    font-size: 13px; color: var(--muted);
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 999px; padding: 6px 14px;
+  }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--gray); flex: none; }
+  .dot.green { background: var(--green); }
+  .dot.busy { background: var(--accent); animation: pulse 1s ease-in-out infinite; }
+  @keyframes pulse { 50% { opacity: 0.35; } }
+
+  .btn {
+    border: 1px solid var(--border); background: var(--card); color: var(--text);
+    border-radius: 8px; padding: 8px 16px; font-size: 14px; cursor: pointer;
+    transition: background 0.15s, border-color 0.15s, opacity 0.15s;
+    font-family: inherit;
+  }
+  .btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn.primary:hover:not(:disabled) { background: #4338ca; color: #fff; }
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn.sm { padding: 5px 12px; font-size: 13px; }
+  .btn .spinner {
+    display: inline-block; width: 11px; height: 11px; margin-right: 6px;
+    border: 2px solid currentColor; border-top-color: transparent;
+    border-radius: 50%; vertical-align: -1px;
+    animation: spin 0.7s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* 工具卡片 */
+  .grid {
+    display: grid; gap: 18px;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    margin-bottom: 28px;
+  }
+  .card {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 20px;
+    box-shadow: 0 1px 3px rgba(16, 24, 40, 0.06);
+    display: flex; flex-direction: column; gap: 10px;
+  }
+  .card-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  .card-title { font-size: 16px; font-weight: 600; }
+  .card-desc { font-size: 13px; color: var(--muted); min-height: 2.6em; }
+  .meta { font-size: 13px; color: var(--muted); display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .meta .label { color: var(--gray); }
+  .commit {
+    font-size: 12px; color: var(--muted);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .badge {
+    display: inline-block; font-size: 12px; line-height: 1;
+    border-radius: 999px; padding: 4px 10px;
+    background: var(--accent-soft); color: var(--accent); font-weight: 600;
+  }
+  .badge.warn { background: var(--amber-bg); color: var(--amber-text); }
+  .badge.plain { background: #f3f4f6; color: var(--muted); font-weight: 500; }
+  .env { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); }
+  .card-actions { display: flex; gap: 8px; margin-top: auto; padding-top: 6px; }
+  .card-actions .btn { flex: 1; }
+
+  /* 日志面板 */
+  .log-panel {
+    background: #111827; border-radius: var(--radius);
+    box-shadow: 0 1px 3px rgba(16, 24, 40, 0.2);
+    overflow: hidden;
+  }
+  .log-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 16px; border-bottom: 1px solid #1f2937;
+    color: #9ca3af; font-size: 13px;
+  }
+  .log-body {
+    height: 240px; overflow-y: auto; padding: 12px 16px;
+    font-family: "Cascadia Mono", Consolas, "Courier New", monospace;
+    font-size: 12.5px; line-height: 1.7; color: #d1d5db;
+    white-space: pre-wrap; word-break: break-all;
+  }
+  .log-body .empty { color: #4b5563; }
+</style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <div class="title-group">
+      <h1>ABI 工具箱</h1>
+      <p class="subtitle">5 个 ABI 姐妹工具的统一控制台：更新、环境、启动，一站搞定</p>
+    </div>
+    <span class="overall"><span class="dot" id="overall-dot"></span><span id="overall-text">加载中…</span></span>
+    <button class="btn primary" id="refresh-all-btn" onclick="refreshAll()">全部更新并搭建环境</button>
+  </header>
+
+  <main class="grid" id="grid"></main>
+
+  <section class="log-panel">
+    <div class="log-head"><span>运行日志</span><span id="log-count"></span></div>
+    <div class="log-body" id="log-body"><div class="empty">暂无日志</div></div>
+  </section>
+</div>
+
+<script>
+let lastLogSeq = 0;
+let latestStatus = null;
+
+function esc(s) {
+  return String(s ?? "").replace(/[&<>"']/g, c =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+async function post(url) {
+  try {
+    const r = await fetch(url, { method: "POST" });
+    return await r.json();
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
+function renderCards(data) {
+  const grid = document.getElementById("grid");
+  grid.innerHTML = data.tools.map(t => {
+    const running = t.running;
+    const busy = running ? `<span class="spinner"></span>` : "";
+    const disabled = running ? "disabled" : "";
+
+    let badges = "";
+    if (!t.exists) {
+      badges = `<span class="badge warn">未克隆</span>`;
+    } else {
+      if (t.behind === null) {
+        badges = `<span class="badge plain">远程未知</span>`;
+      } else if (t.behind > 0) {
+        badges = `<span class="badge warn">可更新 · 落后 ${t.behind}</span>`;
+      } else {
+        badges = `<span class="badge">已是最新</span>`;
+      }
+      if (t.ahead > 0) badges += ` <span class="badge plain">超前 ${t.ahead}</span>`;
+    }
+
+    const env = t.env_ready
+      ? `<span class="env"><span class="dot green"></span>环境就绪</span>`
+      : `<span class="env"><span class="dot"></span>环境未搭建</span>`;
+    const branch = t.branch || "—";
+    const commit = t.last_commit ? esc(t.last_commit) : "暂无提交信息";
+
+    return `
+    <div class="card">
+      <div class="card-head">
+        <span class="card-title">${esc(t.display)}</span>
+        ${env}
+      </div>
+      <p class="card-desc">${esc(t.description)}</p>
+      <div class="meta"><span class="label">分支</span>${esc(branch)} ${badges}</div>
+      <div class="commit" title="${commit}">${commit}</div>
+      <div class="card-actions">
+        <button class="btn sm" ${disabled} onclick="doAction('launch','${t.id}')">${busy && running === "launch" ? busy : ""}启动</button>
+        <button class="btn sm" ${disabled} onclick="doAction('update','${t.id}')">${running === "update" ? busy : ""}更新</button>
+        <button class="btn sm" ${disabled} onclick="doAction('setup','${t.id}')">${running === "setup" ? busy : ""}搭建环境</button>
+      </div>
+    </div>`;
+  }).join("");
+
+  // 整体状态指示
+  const dot = document.getElementById("overall-dot");
+  const text = document.getElementById("overall-text");
+  const anyRunning = data.refresh_running || data.tools.some(t => t.running);
+  const updates = data.tools.filter(t => t.update_available).length;
+  const notReady = data.tools.filter(t => !t.exists || !t.env_ready).length;
+  if (anyRunning) {
+    dot.className = "dot busy";
+    text.textContent = data.refresh_running ? "正在全量更新与搭建…" : "有操作进行中…";
+  } else if (updates > 0 || notReady > 0) {
+    dot.className = "dot";
+    text.textContent = `${updates} 个可更新 · ${notReady} 个环境未就绪`;
+  } else {
+    dot.className = "dot green";
+    text.textContent = "一切就绪";
+  }
+
+  const refreshBtn = document.getElementById("refresh-all-btn");
+  refreshBtn.disabled = data.refresh_running;
+  refreshBtn.innerHTML = data.refresh_running
+    ? `<span class="spinner"></span>正在更新与搭建…`
+    : "全部更新并搭建环境";
+}
+
+async function fetchStatus() {
+  try {
+    const r = await fetch("/api/status");
+    latestStatus = await r.json();
+    renderCards(latestStatus);
+  } catch (e) { /* 下一轮再试 */ }
+}
+
+async function fetchLogs() {
+  try {
+    const r = await fetch(`/api/logs?since=${lastLogSeq}`);
+    const data = await r.json();
+    const body = document.getElementById("log-body");
+    if (data.lines.length > 0) {
+      const empty = body.querySelector(".empty");
+      if (empty) empty.remove();
+      for (const line of data.lines) {
+        const div = document.createElement("div");
+        div.textContent = line;
+        body.appendChild(div);
+      }
+      body.scrollTop = body.scrollHeight;  // 自动滚动到底
+    }
+    lastLogSeq = data.last;
+    document.getElementById("log-count").textContent = `已显示至 #${data.last}`;
+  } catch (e) { /* 下一轮再试 */ }
+}
+
+async function doAction(action, id) {
+  const res = await post(`/api/${action}/${id}`);
+  if (!res.ok) alert(res.error || "操作失败");
+  fetchStatus();
+  fetchLogs();
+}
+
+async function refreshAll() {
+  const res = await post("/api/refresh-all");
+  if (!res.ok) alert(res.error || "操作失败");
+  fetchStatus();
+}
+
+fetchStatus();
+fetchLogs();
+setInterval(fetchStatus, 5000);  // 状态每 5 秒轮询
+setInterval(fetchLogs, 2000);    // 日志每 2 秒轮询
+</script>
+</body>
+</html>

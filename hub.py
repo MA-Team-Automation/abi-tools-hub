@@ -40,12 +40,14 @@ def main() -> None:
                         help="Web 控制台端口（默认 8765）")
     args = parser.parse_args()
 
-    # 除非显式跳过，否则后台自动更新 + 搭建环境（daemon 线程，不阻塞退出）
-    if not args.no_update:
-        threading.Thread(target=_refresh_in_background, daemon=True).start()
+    def _start_background_refresh() -> None:
+        """TUI 路径的后台自动更新（daemon 线程，不阻塞退出）。"""
+        if not args.no_update:
+            threading.Thread(target=_refresh_in_background, daemon=True).start()
 
     # TUI 模式直接进菜单
     if args.tui:
+        _start_background_refresh()
         import tui
         tui.main()
         return
@@ -54,11 +56,13 @@ def main() -> None:
     try:
         import web
     except ImportError:
+        _start_background_refresh()
         print("Web 模块尚未就绪，自动进入 TUI 模式")
         import tui
         tui.main()
         return
-    web.serve(port=args.port, open_browser=True)
+    # Web 模式下自动更新由 web.py 接管（写入 Web 日志缓冲），--no-update 时跳过
+    web.serve(port=args.port, open_browser=True, auto_refresh=not args.no_update)
 
 
 if __name__ == "__main__":
