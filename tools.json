@@ -1,0 +1,9 @@
+{
+  "tools": [
+    {"id": "heddien-data", "name": "Get-MediaTools-Heddien-Data", "display": "MediaTools 隐藏数据提取", "description": "提取 MediaTools Import Template 隐藏 Sheet 数据（CreativeName 提取 / 取消超级隐藏）", "dir": "../Get-MediaTools-Heddien-Data", "repo": "https://github.com/XiaoZ-0218/Get-MediaTools-Heddien-Data.git", "branch": "main", "entry": "main.py"},
+    {"id": "mediatools-auto", "name": "MediaTools Auto", "display": "MediaTools 自动填充", "description": "根据补充信息表自动填充 Media Tools 模板，并生成缺失信息报告", "dir": "../MediaTools Auto", "repo": "https://github.com/MA-Team-Automation/MediaTools-Auto.git", "branch": "master", "entry": "MediaTools Generator.py"},
+    {"id": "mediatools-to-excel", "name": "mediatools导出excel", "display": "MediaTools 数据导出", "description": "自动登录 MediaTools 获取投放数据并导出为 Excel（需自行配置 .env）", "dir": "../mediatools导出excel", "repo": "https://github.com/MA-Team-Automation/mediatools-to-excel.git", "branch": "main", "entry": "fetch_mtools.py"},
+    {"id": "spending-report", "name": "Spending Report", "display": "Spending Report 报表", "description": "NOVA 排期表合并清洗，导出统一格式 All Fields 报表及二次拆分", "dir": "../Spending Report", "repo": "https://github.com/MA-Team-Automation/Spending-Report.git", "branch": "main", "entry": "main.py"},
+    {"id": "spillover-tool", "name": "Spillover Tool", "display": "Spillover 拆分工具", "description": "将 National / Province 层级数据按 Spillover 工具表拆分为 City 层级", "dir": "../Spillover Tool", "repo": "https://github.com/XiaoZ-0218/Spillover-Tool.git", "branch": "master", "entry": "Spillover Tool.py"}
+  ]
+}
