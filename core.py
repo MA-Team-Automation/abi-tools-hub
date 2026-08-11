@@ -1,0 +1,218 @@
+"""ABI Tools Hub 核心模块。
+
+负责读取 tools.json、检查各姐妹仓库状态、克隆/更新代码、搭建环境、启动工具。
+所有函数仅使用 Python 标准库，web.py（Web 控制台）与 tui.py 均基于本模块开发。
+"""
+
+import json
+import os
+import shutil
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+# 项目根目录（core.py 所在目录），tools.json 与其同级
+ROOT = Path(__file__).resolve().parent
+TOOLS_JSON = ROOT / "tools.json"
+
+# git 子命令超时时间（秒）；fetch 走网络，给足 60 秒
+GIT_TIMEOUT = 60
+# uv sync 可能首次安装依赖，超时放宽
+UV_TIMEOUT = 300
+
+
+def load_tools() -> list:
+    """读取 tools.json，把每个 tool 的 "dir" 解析为绝对路径存入 "path" 键后返回列表。"""
+    data = json.loads(TOOLS_JSON.read_text(encoding="utf-8"))
+    tools = []
+    for tool in data["tools"]:
+        tool = dict(tool)
+        # dir 是相对 Hub 根目录的相对路径，可能带空格或中文，resolve 为绝对路径
+        tool["path"] = str((ROOT / tool["dir"]).resolve())
+        tools.append(tool)
+    return tools
+
+
+def _run_git(path: str, args: list, timeout: int = GIT_TIMEOUT) -> subprocess.CompletedProcess:
+    """在指定仓库执行 git 子命令，统一编码与超时。
+
+    可能与其他自动化进程并发操作同一仓库，遇到 .git lock 错误时等待 2 秒重试一次。
+    """
+    for attempt in (1, 2):
+        try:
+            result = subprocess.run(
+                ["git", "-C", path, *args],
+                capture_output=True, text=True,
+                encoding="utf-8", errors="replace",
+                timeout=timeout,
+            )
+        except subprocess.TimeoutExpired:
+            return subprocess.CompletedProcess(args, 1, "", "git 命令超时")
+        output = result.stdout + result.stderr
+        if result.returncode != 0 and "unable to lock" in output and attempt == 1:
+            time.sleep(2)  # 等待并发的 git 操作释放锁后重试
+            continue
+        return result
+
+
+def check_status(tool: dict) -> dict:
+    """检查单个工具仓库状态。
+
+    返回 {"id", "exists", "branch", "behind", "ahead", "last_commit",
+          "env_ready", "update_available"}。
+    git fetch 失败（如无网络）时静默降级，behind/ahead 置 None。
+    """
+    path = tool["path"]
+    status = {
+        "id": tool["id"],
+        "exists": False,
+        "branch": None,
+        "behind": None,
+        "ahead": None,
+        "last_commit": None,
+        "env_ready": False,
+        "update_available": None,
+    }
+    if not (Path(path) / ".git").is_dir():
+        return status
+
+    status["exists"] = True
+    # 虚拟环境是否已搭建
+    status["env_ready"] = (Path(path) / ".venv").is_dir()
+
+    # 当前分支
+    r = _run_git(path, ["rev-parse", "--abbrev-ref", "HEAD"])
+    if r.returncode == 0:
+        status["branch"] = r.stdout.strip() or None
+
+    # 最后一条提交的一行摘要
+    r = _run_git(path, ["log", "-1", "--pretty=%h %s (%cr)"])
+    if r.returncode == 0:
+        status["last_commit"] = r.stdout.strip() or None
+
+    # fetch 远程最新引用；失败（无网络等）时静默降级，behind/ahead 保持 None
+    branch = tool.get("branch", "main")
+    r = _run_git(path, ["fetch", "origin", branch])
+    if r.returncode == 0:
+        remote_ref = f"origin/{branch}"
+        rb = _run_git(path, ["rev-list", "--count", f"HEAD..{remote_ref}"])
+        ra = _run_git(path, ["rev-list", "--count", f"{remote_ref}..HEAD"])
+        if rb.returncode == 0 and ra.returncode == 0:
+            status["behind"] = int(rb.stdout.strip())
+            status["ahead"] = int(ra.stdout.strip())
+            status["update_available"] = status["behind"] > 0
+    return status
+
+
+def ensure_repo(tool: dict) -> str:
+    """确保仓库存在：path 不存在时 git clone 到对应位置并检出对应分支。返回日志文本。"""
+    path = Path(tool["path"])
+    if (path / ".git").is_dir():
+        return f"[{tool['id']}] 仓库已存在：{path}"
+    if path.exists():
+        return f"[{tool['id']}] 警告：目录已存在但不是 git 仓库，跳过克隆：{path}"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    branch = tool.get("branch", "main")
+    try:
+        r = subprocess.run(
+            ["git", "clone", "--branch", branch, tool["repo"], str(path)],
+            capture_output=True, text=True,
+            encoding="utf-8", errors="replace",
+            timeout=UV_TIMEOUT,
+        )
+    except subprocess.TimeoutExpired:
+        return f"[{tool['id']}] 错误：git clone 超时：{tool['repo']}"
+    if r.returncode != 0:
+        return f"[{tool['id']}] 错误：git clone 失败：{r.stderr.strip()}"
+    return f"[{tool['id']}] 已克隆 {tool['repo']}（分支 {branch}）到 {path}"
+
+
+def update_tool(tool: dict) -> str:
+    """更新单个仓库：fetch 后 git pull --ff-only。
+
+    若工作区有未提交改动或无法 fast-forward，返回中文警告日志，绝不强行覆盖用户改动。
+    """
+    path = tool["path"]
+    branch = tool.get("branch", "main")
+    logs = []
+
+    if not (Path(path) / ".git").is_dir():
+        return f"[{tool['id']}] 仓库不存在，跳过更新（请先克隆）"
+
+    # 工作区有未提交改动时不更新，保护用户改动
+    r = _run_git(path, ["status", "--porcelain"])
+    if r.returncode == 0 and r.stdout.strip():
+        return f"[{tool['id']}] 警告：检测到未提交的本地改动，已跳过更新以保护你的修改"
+
+    r = _run_git(path, ["fetch", "origin", branch])
+    if r.returncode != 0:
+        return f"[{tool['id']}] 警告：git fetch 失败（可能无网络），跳过本次更新：{r.stderr.strip()}"
+    logs.append(f"[{tool['id']}] 已 fetch origin/{branch}")
+
+    r = _run_git(path, ["pull", "--ff-only", "origin", branch])
+    if r.returncode != 0:
+        logs.append(
+            f"[{tool['id']}] 警告：无法 fast-forward 更新（可能存在本地提交或分叉），"
+            f"已跳过以保护你的改动：{r.stderr.strip()}"
+        )
+    else:
+        msg = r.stdout.strip()
+        logs.append(f"[{tool['id']}] {msg}")
+    return "\n".join(logs)
+
+
+def setup_env(tool: dict) -> str:
+    """在仓库下执行 uv sync 搭建虚拟环境。uv 不可用时返回中文错误提示与安装指引。"""
+    if shutil.which("uv") is None:
+        return (
+            f"[{tool['id']}] 错误：未找到 uv，无法自动搭建环境。\n"
+            f"请先安装 uv（https://docs.astral.sh/uv/getting-started/installation/），"
+            f"或在仓库目录手动执行 python -m venv .venv"
+        )
+    path = tool["path"]
+    if not (Path(path) / ".git").is_dir():
+        return f"[{tool['id']}] 仓库不存在，跳过环境搭建（请先克隆）"
+    try:
+        r = subprocess.run(
+            ["uv", "sync"],
+            cwd=path,
+            capture_output=True, text=True,
+            encoding="utf-8", errors="replace",
+            timeout=UV_TIMEOUT,
+        )
+    except subprocess.TimeoutExpired:
+        return f"[{tool['id']}] 错误：uv sync 超时"
+    if r.returncode != 0:
+        return f"[{tool['id']}] 错误：uv sync 失败：{r.stderr.strip()}"
+    tail = (r.stderr.strip() or r.stdout.strip()).splitlines()
+    summary = tail[-1] if tail else "完成"
+    return f"[{tool['id']}] 环境已就绪（uv sync：{summary}）"
+
+
+def launch_tool(tool: dict) -> None:
+    """启动工具。
+
+    Windows 下若存在 <path>/启动.bat，用 os.startfile() 打开（弹出独立控制台窗口
+    运行交互式工具）；否则退回 uv run python <entry> 后台启动。
+    """
+    path = Path(tool["path"])
+    bat = path / "启动.bat"
+    if sys.platform == "win32" and bat.is_file():
+        os.startfile(str(bat))  # noqa: S606 —— 打开本机 bat 文件
+        return
+    subprocess.Popen(
+        ["uv", "run", "python", tool["entry"]],
+        cwd=str(path),
+        start_new_session=True,
+    )
+
+
+def refresh_all() -> list:
+    """对每个工具依次 ensure_repo、update_tool、setup_env，汇总日志行返回。"""
+    lines = []
+    for tool in load_tools():
+        for step in (ensure_repo, update_tool, setup_env):
+            result = step(tool)
+            lines.extend(result.splitlines())
+    return lines
