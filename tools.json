@@ -6,7 +6,7 @@
       "display": "MediaTools 隐藏数据提取",
       "description": "提取 MediaTools Import Template 隐藏 Sheet 数据（CreativeName 提取 / 取消超级隐藏）",
       "dir": "../Get-MediaTools-Heddien-Data",
-      "repo": "https://github.com/XiaoZ-0218/Get-MediaTools-Heddien-Data.git",
+      "repo": "https://github.com/MA-Team-Automation/Get-MediaTools-Heddien-Data.git",
       "branch": "main",
       "entry": "main.py",
       "actions": [
@@ -134,7 +134,7 @@
       "display": "Spillover 拆分工具",
       "description": "将 National / Province 层级数据按 Spillover 工具表拆分为 City 层级",
       "dir": "../Spillover Tool",
-      "repo": "https://github.com/XiaoZ-0218/Spillover-Tool.git",
+      "repo": "https://github.com/MA-Team-Automation/Spillover-Tool.git",
       "branch": "master",
       "entry": "Spillover Tool.py",
       "actions": [
