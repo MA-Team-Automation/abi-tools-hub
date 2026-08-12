@@ -8,6 +8,15 @@ ABI 工具集（5 个工具项目）的统一用户入口（Web 控制台 + TUI�
 - [uv](https://docs.astral.sh/uv/getting-started/installation/)（用于自动搭建各工具的虚拟环境）
 - git（用于自动克隆与更新各工具仓库）
 
+## 前置要求：组织权限与 GitHub 登录
+
+本 Hub 与 5 个工具均为 GitHub 组织 [MA-Team-Automation](https://github.com/MA-Team-Automation) 下的**私有仓库**。首次使用前请：
+
+1. 申请加入该组织（联系组织管理员；组织主页：https://github.com/MA-Team-Automation）；
+2. 确保本机 git 已完成 GitHub 登录——首次执行 git 操作时 Git Credential Manager 会弹出浏览器授权窗口，按提示完成即可。
+
+未完成上述步骤时，克隆 / 更新会因 404 或认证失败而无法进行；Web 界面检测到这类错误时也会弹出引导提示。
+
 ## 快速开始
 
 双击 **「启动 Hub.bat」** 即可：它会自动检查各工具更新、拉取主分支最新代码、自动搭建环境，并打开浏览器中的 Web 控制台。
