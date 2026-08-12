@@ -153,28 +153,33 @@ def ensure_repo(tool: dict) -> str:
     return f"[{tool['id']}] 已克隆 {tool['repo']}（分支 {branch}）到 {path}"
 
 
-def update_tool(tool: dict) -> str:
-    """更新单个仓库：fetch 后 git pull --ff-only。
+def update_tool_result(tool: dict) -> dict:
+    """update_tool 的结构化版本：返回 {"pulled": bool, "log": str}。
 
-    若工作区有未提交改动或无法 fast-forward，返回中文警告日志，绝不强行覆盖用户改动。
-    若当前检出分支不是配置的主分支（如未合并的功能分支），fetch 照常执行但跳过 pull，
-    避免把主分支代码拉进功能分支。
+    pulled=True 仅表示 pull --ff-only 真正拉到了新提交（非 Already up to date），
+    供调用方决定是否需要重建环境。
     """
+    result = {"pulled": False, "log": ""}
+
+    def _finish(logs) -> dict:
+        result["log"] = "\n".join(logs) if isinstance(logs, list) else logs
+        return result
+
     path = tool["path"]
     branch = tool.get("branch", "main")
     logs = []
 
     if not (Path(path) / ".git").is_dir():
-        return f"[{tool['id']}] 仓库不存在，跳过更新（请先克隆）"
+        return _finish(f"[{tool['id']}] 仓库不存在，跳过更新（请先克隆）")
 
     # 工作区有未提交改动时不更新，保护用户改动
     r = _run_git(path, ["status", "--porcelain"])
     if r.returncode == 0 and r.stdout.strip():
-        return f"[{tool['id']}] 警告：检测到未提交的本地改动，已跳过更新以保护你的修改"
+        return _finish(f"[{tool['id']}] 警告：检测到未提交的本地改动，已跳过更新以保护你的修改")
 
     r = _run_git(path, ["fetch", "origin", branch])
     if r.returncode != 0:
-        return f"[{tool['id']}] 警告：git fetch 失败（可能无网络），跳过本次更新：{r.stderr.strip()}"
+        return _finish(f"[{tool['id']}] 警告：git fetch 失败（可能无网络），跳过本次更新：{r.stderr.strip()}")
     logs.append(f"[{tool['id']}] 已 fetch origin/{branch}")
 
     # 当前检出分支 ≠ 配置主分支时跳过 pull，防止主分支代码进入未合并的功能分支
@@ -182,7 +187,7 @@ def update_tool(tool: dict) -> str:
     current = r.stdout.strip() if r.returncode == 0 else ""
     if current and current != branch:
         logs.append(f"[{tool['id']}] 当前在 {current} 分支，已跳过拉取（请先合并功能分支）")
-        return "\n".join(logs)
+        return _finish(logs)
 
     r = _run_git(path, ["pull", "--ff-only", "origin", branch])
     if r.returncode != 0:
@@ -193,7 +198,18 @@ def update_tool(tool: dict) -> str:
     else:
         msg = r.stdout.strip()
         logs.append(f"[{tool['id']}] {msg}")
-    return "\n".join(logs)
+        result["pulled"] = "Already up to date" not in msg
+    return _finish(logs)
+
+
+def update_tool(tool: dict) -> str:
+    """更新单个仓库：fetch 后 git pull --ff-only。
+
+    若工作区有未提交改动或无法 fast-forward，返回中文警告日志，绝不强行覆盖用户改动。
+    若当前检出分支不是配置的主分支（如未合并的功能分支），fetch 照常执行但跳过 pull，
+    避免把主分支代码拉进功能分支。返回日志文本（结构化版本见 update_tool_result）。
+    """
+    return update_tool_result(tool)["log"]
 
 
 def setup_env(tool: dict) -> str:
@@ -304,8 +320,27 @@ def self_update() -> dict:
     return _finish()
 
 
+def refresh_tool(tool: dict) -> list:
+    """单个工具的完整更新单元：ensure_repo → update_tool → 按需 setup_env。
+
+    仅当 pull 真正拉到了新提交、或 .venv 尚不存在时才执行 setup_env（uv sync）；
+    否则记一行「环境未变化，跳过依赖同步」。返回日志行列表。
+    供 refresh_all 与 Web 编排层并行调用。
+    """
+    lines = []
+    lines.extend(ensure_repo(tool).splitlines())
+    result = update_tool_result(tool)
+    lines.extend(result["log"].splitlines())
+    env_exists = (Path(tool["path"]) / ".venv").is_dir()
+    if result["pulled"] or not env_exists:
+        lines.extend(setup_env(tool).splitlines())
+    else:
+        lines.append(f"[{tool['id']}] 环境未变化，跳过依赖同步")
+    return lines
+
+
 def refresh_all(on_tool_start=None, on_tool_done=None) -> list:
-    """对每个工具执行 ensure_repo、update_tool、setup_env，汇总日志行返回。
+    """对每个工具执行完整更新单元（refresh_tool），汇总日志行返回。
 
     5 个工具之间用 ThreadPoolExecutor 并发执行（max_workers=5），git fetch 等
     网络操作不再串行等待，总耗时接近最慢的单个工具；单个工具内部仍按
@@ -323,8 +358,7 @@ def refresh_all(on_tool_start=None, on_tool_done=None) -> list:
             on_tool_start(tool)
         tool_lines = []
         try:
-            for step in (ensure_repo, update_tool, setup_env):
-                tool_lines.extend(step(tool).splitlines())
+            tool_lines = refresh_tool(tool)
         finally:
             if on_tool_done is not None:
                 on_tool_done(tool)
