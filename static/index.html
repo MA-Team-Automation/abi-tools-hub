@@ -156,7 +156,12 @@
     transition: width 0.3s ease;
   }
   .status-text { font-size: 12.5px; color: var(--faint); text-align: center; }
-  .status-sub { font-size: 11px; color: #c7c7c2; text-align: center; margin-top: 1px; min-height: 14px; }
+  .status-row {
+    display: flex; justify-content: space-between; align-items: baseline;
+    width: 200px; margin: 1px auto 0; min-height: 14px;
+  }
+  .status-sub { font-size: 11px; color: #c7c7c2; }
+  .status-elapsed { font-size: 11px; color: #c7c7c2; font-family: var(--mono); }
   .status-strip.done .status-text { color: var(--green); }
 
   /* ---------- 主页 · 工具卡片网格 ---------- */
@@ -438,7 +443,10 @@
     <div class="status-strip" id="status-strip">
       <div class="hairline"><div class="hairline-bar" id="hairline-bar"></div></div>
       <p class="status-text" id="status-text">正在检查更新…</p>
-      <p class="status-sub" id="status-sub"></p>
+      <div class="status-row">
+        <span class="status-sub" id="status-sub"></span>
+        <span class="status-elapsed" id="status-elapsed"></span>
+      </div>
     </div>
   </header>
   <main class="grid" id="grid"></main>
@@ -605,22 +613,32 @@ function renderCards() {
 }
 
 // 标题下方状态条：拿到 refresh.done/total 后按真实比例推进，
-// 完成后短暂显示「一切就绪」并淡出
+// 右侧显示本地已耗时秒数；完成后短暂显示「一切就绪」并淡出
 let stripState = "idle";  // idle | busy | done
 let stripTimer = null;
+let stripStartTs = 0;      // 本轮 busy 开始时间（本地计时）
+let stripTick = null;      // 已耗时秒数跳动定时器
 function updateStrip(refreshing, refresh) {
   const strip = el("status-strip");
   const text = el("status-text");
   const sub = el("status-sub");
+  const elapsed = el("status-elapsed");
   const bar = el("hairline-bar");
   const btn = el("refresh-btn");
   btn.classList.toggle("spinning", refreshing);
   if (refreshing) {
+    if (stripState !== "busy") {
+      stripStartTs = Date.now();
+      clearInterval(stripTick);
+      stripTick = setInterval(() => {
+        elapsed.textContent = `${Math.floor((Date.now() - stripStartTs) / 1000)}s`;
+      }, 1000);
+    }
     stripState = "busy";
     clearTimeout(stripTimer);
     strip.className = "status-strip busy";
     if (refresh && refresh.total > 0) {
-      // 真实进度：done/total 比例平滑推进 + 当前更新项
+      // 真实进度：done/total 比例平滑推进（含 0/6）+ 当前更新项
       bar.classList.add("determinate");
       bar.style.width = `${Math.round((refresh.done / refresh.total) * 100)}%`;
       text.textContent = `正在更新 · ${refresh.done}/${refresh.total}`;
@@ -635,11 +653,14 @@ function updateStrip(refreshing, refresh) {
     }
   } else if (stripState === "busy") {
     stripState = "done";
+    clearInterval(stripTick);
+    stripTick = null;
     strip.className = "status-strip done";
     bar.classList.remove("determinate");
     bar.style.width = "";
     text.textContent = "一切就绪";
     sub.textContent = "";
+    elapsed.textContent = "";
     stripTimer = setTimeout(() => {
       if (stripState === "done") {
         strip.className = "status-strip";
@@ -724,7 +745,8 @@ async function probeHubAlive() {
 }
 
 async function refreshAll() {
-  updateStrip(true, null);  // 点击瞬间立即反馈：图标旋转 + 进度条出现
+  // 点击瞬间立即反馈：图标旋转 + 进度条出现并显示 0/6（不等下一轮轮询）
+  updateStrip(true, { active: true, done: 0, total: 6, current: [] });
   try {
     await apiPost("/api/refresh-all");
   } catch (e) {
@@ -1070,9 +1092,17 @@ function setText(id, text) { const n = el(id); if (n) n.textContent = text; }
 route();
 fetchTools().then(renderCards).catch(e => toast(`加载工具列表失败：${e.message}`));
 fetchStatus();
-setInterval(() => {
-  if (!document.hidden) fetchStatus();  // 工具页也轮询，及时发现 Hub 自更新
-}, 3000);
+
+// 动态轮询：刷新进行中 1s 一次（进度跟手），平时 5s 一次
+let statusPollTimer = null;
+function scheduleStatusPoll() {
+  clearTimeout(statusPollTimer);
+  statusPollTimer = setTimeout(async () => {
+    if (!document.hidden) await fetchStatus();
+    scheduleStatusPoll();
+  }, state.refreshing ? 1000 : 5000);
+}
+scheduleStatusPoll();
 </script>
 </body>
 </html>
