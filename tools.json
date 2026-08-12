@@ -49,7 +49,7 @@
             {"key": "template", "label": "模板文件路径", "type": "path", "required": true, "default": "", "placeholder": "请粘贴文件路径"},
             {"key": "start_row", "label": "起始行号", "type": "text", "required": false, "default": "500", "placeholder": "默认 500"}
           ],
-          "command": ["uv", "run", "python", "MediaTools Generator.py", "--supp", "{supp}", "--template", "{template}", "--start-row", "{start_row}"]
+          "command": ["uv", "run", "python", "-X", "utf8", "MediaTools Generator.py", "--supp", "{supp}", "--template", "{template}", "--start-row", "{start_row}"]
         },
         {
           "id": "check-file",
@@ -58,14 +58,14 @@
           "inputs": [
             {"key": "file", "label": "要校验的 Excel 文件路径", "type": "path", "required": true, "default": "", "placeholder": "请粘贴文件路径"}
           ],
-          "command": ["uv", "run", "python", "MediaTools Generator.py", "--check", "{file}"]
+          "command": ["uv", "run", "python", "-X", "utf8", "MediaTools Generator.py", "--check", "{file}"]
         },
         {
           "id": "log-dir",
           "label": "打开日志目录",
           "description": "打开本机日志目录（资源管理器窗口）",
           "inputs": [],
-          "command": ["uv", "run", "python", "MediaTools Generator.py", "--log-dir"]
+          "command": ["uv", "run", "python", "-X", "utf8", "MediaTools Generator.py", "--log-dir"]
         }
       ]
     },
@@ -153,7 +153,7 @@
             {"key": "values", "label": "数值列（选填）", "type": "text", "required": false, "default": "", "placeholder": "留空自动识别数字列", "hint": "多个列名用英文逗号分隔"},
             {"key": "split_column", "label": "拆分 Sheet 列（选填）", "type": "text", "required": false, "default": "", "options_from": {"what": "columns", "depends_on": ["file", "sheet"]}}
           ],
-          "command": ["uv", "run", "python", "Spillover Tool.py", "{file}", {"args": ["--sheet", "{sheet}"], "omit_if_empty": true}, {"args": ["--dimension", "{dimension}"], "omit_if_empty": true}, {"args": ["--values", "{values}"], "omit_if_empty": true}, {"args": ["--split-column", "{split_column}"], "omit_if_empty": true}]
+          "command": ["uv", "run", "python", "-X", "utf8", "Spillover Tool.py", "{file}", {"args": ["--sheet", "{sheet}"], "omit_if_empty": true}, {"args": ["--dimension", "{dimension}"], "omit_if_empty": true}, {"args": ["--values", "{values}"], "omit_if_empty": true}, {"args": ["--split-column", "{split_column}"], "omit_if_empty": true}]
         },
         {
           "id": "list-sheets",
@@ -162,7 +162,7 @@
           "inputs": [
             {"key": "file", "label": "Excel 文件路径", "type": "path", "required": true, "default": "", "placeholder": "请粘贴文件路径"}
           ],
-          "command": ["uv", "run", "python", "Spillover Tool.py", "{file}", "--list-sheets"]
+          "command": ["uv", "run", "python", "-X", "utf8", "Spillover Tool.py", "{file}", "--list-sheets"]
         },
         {
           "id": "list-columns",
@@ -172,7 +172,7 @@
             {"key": "file", "label": "Excel 文件路径", "type": "path", "required": true, "default": "", "placeholder": "请粘贴文件路径"},
             {"key": "sheet", "label": "Sheet 名（选填）", "type": "text", "required": false, "default": "", "placeholder": "留空使用第一个 Sheet"}
           ],
-          "command": ["uv", "run", "python", "Spillover Tool.py", "{file}", "--list-columns", {"args": ["--sheet", "{sheet}"], "omit_if_empty": true}]
+          "command": ["uv", "run", "python", "-X", "utf8", "Spillover Tool.py", "{file}", "--list-columns", {"args": ["--sheet", "{sheet}"], "omit_if_empty": true}]
         }
       ]
     }
