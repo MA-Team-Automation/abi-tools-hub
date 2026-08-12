@@ -144,14 +144,22 @@ def _refresh_all_background() -> None:
 
 
 def _do_restart() -> None:
-    """延迟执行的原地重启：先释放端口，再用原始 argv 替换当前进程。"""
+    """延迟执行的原地重启：先释放端口，再用原始 argv 拉起新进程。"""
     log("正在重启 Hub 服务...")
     try:
         if _server is not None:
             _server.server_close()
     except Exception:
         pass
-    os.execv(sys.executable, [sys.executable, *_LAUNCH_ARGV])
+    argv = [sys.executable, *_LAUNCH_ARGV]
+    if sys.platform == "win32":
+        # Windows 的 os.execv 不处理可执行路径中的空格
+        # （C:\Program Files\... 会在空格处截断导致新进程启动失败），
+        # 改用 Popen（正确拼接命令行并继承同一控制台）后退出当前进程，
+        # 效果等同原地重启。
+        subprocess.Popen(argv)
+        os._exit(0)
+    os.execv(sys.executable, argv)
 
 
 def _quick_status(tool: dict) -> dict:
