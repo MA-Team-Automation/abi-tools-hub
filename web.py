@@ -144,11 +144,11 @@ def _run_action(tool: dict, action: str, func) -> None:
             _running.pop(tool["id"], None)
 
 
-def _progress_begin(total: int, first: str) -> None:
-    """开始一轮刷新：重置进度并把第一个单元登记为进行中。"""
+def _progress_begin(total: int) -> None:
+    """开始一轮刷新：重置进度（各单元开跑后自行登记到 current）。"""
     with _state_lock:
         _refresh_progress.update({"active": True, "done": 0, "total": total,
-                                  "current": [first]})
+                                  "current": []})
 
 
 def _progress_start(name: str) -> None:
@@ -174,8 +174,9 @@ def _progress_end() -> None:
 
 
 def _refresh_all_background() -> None:
-    """后台线程：单轮流程——Hub 自更新 + 并行拉取各工具代码、搭建环境，
+    """后台线程：单轮并行流程——Hub 自更新与 5 个工具共 6 个单元放进同一个
 
+    ThreadPoolExecutor(max_workers=6) 同时开跑，墙钟时间 ≈ 最慢单个单元；
     结束后用本轮 fetch 后的本地 git 信息直接构建状态缓存（不再来一轮 fetch）。
     """
     global _refresh_running
@@ -185,10 +186,12 @@ def _refresh_all_background() -> None:
         _refresh_running = True
     tools = core.load_tools()
     hub_unit = "ABI 工具箱"
-    _progress_begin(total=1 + len(tools), first=hub_unit)
-    log("开始自动检查更新并搭建环境（并行执行，git fetch 可能需要几分钟）...")
-    try:
-        # 单元 1：Hub 自身更新（含 main 分支/干净工作区/ff-only 保护）
+    _progress_begin(total=1 + len(tools))
+    log("开始自动检查更新并搭建环境（6 个单元并行，git fetch 可能需要几分钟）...")
+
+    def _hub_unit() -> None:
+        """并行单元：Hub 自身更新（含 main 分支/干净工作区/ff-only 保护）。"""
+        _progress_start(hub_unit)
         try:
             result = core.self_update()
             for line in result["log"].splitlines():
@@ -200,18 +203,27 @@ def _refresh_all_background() -> None:
                     _hub_status["updated"] = True
         except Exception as exc:
             log(f"错误：Hub 自更新检查失败：{exc}")
-        _progress_done(hub_unit)
+        finally:
+            _progress_done(hub_unit)
 
-        # 单元 2-6：5 个工具并行更新（进度回调在各工作线程触发）
-        def _on_start(tool: dict) -> None:
-            _progress_start(tool["display"])
-
-        def _on_done(tool: dict) -> None:
+    def _tool_unit(tool: dict) -> None:
+        """并行单元：单个工具的 ensure_repo → update_tool → 按需 setup_env。"""
+        _progress_start(tool["display"])
+        try:
+            for line in core.refresh_tool(tool):
+                log(line)
+                _mark_access_error(line)
+        except Exception as exc:
+            log(f"[{tool['id']}] 错误：更新失败：{exc}")
+        finally:
             _progress_done(tool["display"])
 
-        for line in core.refresh_all(_on_start, _on_done):
-            log(line)
-            _mark_access_error(line)
+    try:
+        with ThreadPoolExecutor(max_workers=6) as pool:
+            futures = [pool.submit(_hub_unit)]
+            futures.extend(pool.submit(_tool_unit, tool) for tool in tools)
+            for future in futures:
+                future.result()  # 单元内部已捕获异常，此处仅等待全部完成
         log("自动更新与环境检查完成。")
     except Exception as exc:
         log(f"错误：自动更新失败：{exc}")
