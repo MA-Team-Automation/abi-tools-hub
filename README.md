@@ -38,6 +38,42 @@ Web API（供前端页面使用）：
 | POST | `/api/launch/{id}` | 启动单个工具 |
 | POST | `/api/refresh-all` | 后台全量更新并搭建环境 |
 | GET | `/api/logs?since=N` | 日志环形缓冲（最近 500 行，按序号增量拉取） |
+| GET | `/api/tools` | 工具列表（展示字段 + actions 定义，供渲染操作表单） |
+| POST | `/api/run/{tool_id}/{action_id}` | 启动工具操作任务，请求体 `{"params": {key: value}}`，返回 `{"job_id": "..."}`；参数校验失败返回 400 + 中文错误信息 |
+| GET | `/api/jobs` | 所有任务摘要（按时间倒序，最多保留最近 50 个） |
+| GET | `/api/job/{job_id}?since=N` | 任务增量日志：`{status, exit_code, lines: [{seq, text}]}`，lines 只含 `seq > N` |
+
+## Web 工作台
+
+5 个工具的功能已全部搬进 Web 界面：在浏览器中填写表单（文件路径等参数）、点击运行、实时查看输出，无需再打开各工具的终端菜单。
+
+- 每个工具的 `actions`（操作列表）声明在 `tools.json` 中，前端按 `inputs` 渲染表单；
+- 点击运行后 Hub 在后台线程启动子进程（工作目录为对应工具仓库），逐行采集输出；
+- 前端按 `GET /api/job/{job_id}?since=N` 轮询增量日志，直到 `status` 变为 `done` / `error`；
+- 少数无需子进程的检查类操作（如 MediaTools 数据导出的「检查 .env 配置」）以 `"kind": "builtin"` 声明，由 Hub 内置实现。
+
+### tools.json actions 配置格式
+
+每个工具可增加 `actions` 数组，元素格式：
+
+```json
+{
+  "id": "split-data",
+  "label": "中文操作名",
+  "description": "一句话说明",
+  "inputs": [
+    {"key": "file", "label": "Excel 文件路径", "type": "path", "required": true, "default": "", "placeholder": "拖入或粘贴文件路径"}
+  ],
+  "command": ["uv", "run", "python", "Some Tool.py", "{file}", {"args": ["--sheet", "{sheet}"], "omit_if_empty": true}]
+}
+```
+
+- `inputs`：表单字段。`type` 仅支持 `path`（文件路径，后端自动去引号 / 去 `& ` 前缀 / 去空白）与 `text`（普通文本/数字）；`required` 为 `true` 且值为空时启动失败并返回 400。无输入的操作（如数据导出）可省略 `inputs` 或置空数组。
+- `command`：argv 数组（不使用 shell），在工具仓库目录下执行。字符串元素中的 `{key}` 由同名输入值替换；元素整体恰好是 `{key}` 且值为空时该元素被省略。
+- 可选参数组：`{"args": ["--sheet", "{sheet}"], "omit_if_empty": true}` —— 组内任一 `{key}` 值为空时，整组参数省略（用于 `--sheet` 这类可选 CLI 参数）。
+- 需要调用包内函数而非 CLI 时，可用 `python -X utf8 -c "<驱动代码>" <参数>` 的形式，参数通过 `sys.argv` 传入（避免 -c 内嵌路径的引号转义问题）。
+- `"kind": "builtin"` 的特殊 action 不跑 subprocess，由 Hub 内置实现（在 `jobs.py` 的 `_BUILTINS` 中按 action id 注册），适合本机检查类操作。
+
 
 ## TUI 模式
 
@@ -78,6 +114,7 @@ python hub.py --port 9000  # 指定 Web 控制台端口（默认 8765）
 - `repo`：git 远程仓库地址（目录缺失时自动克隆用）
 - `branch`：跟踪的主分支（fetch / pull / clone 均使用该分支）
 - `entry`：工具入口脚本文件名（无「启动.bat」时通过 `uv run python <entry>` 启动）
+- `actions`：Web 工作台的操作列表（可选；格式见上文「Web 工作台」小节）
 
 ## 目录结构
 
@@ -86,6 +123,7 @@ ABI Tools Hub/
 ├── hub.py          # 入口：解析参数，启动 Web 控制台或 TUI
 ├── core.py         # 核心：状态检查 / 克隆 / 更新 / 环境搭建 / 启动
 ├── web.py          # Web 控制台（纯标准库 HTTP 服务 + JSON API）
+├── jobs.py         # 任务执行器（后台线程跑子进程、实时采集输出）
 ├── tui.py          # 统一 TUI 菜单
 ├── tui_kit.py      # 统一 TUI 界面工具包（与各工具项目保持字节级一致，勿修改）
 ├── static/
