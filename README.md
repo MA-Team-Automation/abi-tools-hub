@@ -1,6 +1,6 @@
 # ABI Tools Hub
 
-5 个 ABI 姐妹工具的统一用户入口（Web 控制台 + TUI）。
+ABI 工具集（5 个工具项目）的统一用户入口（Web 控制台 + TUI）。
 
 ## 环境要求
 
@@ -87,7 +87,7 @@ ABI Tools Hub/
 ├── core.py         # 核心：状态检查 / 克隆 / 更新 / 环境搭建 / 启动
 ├── web.py          # Web 控制台（纯标准库 HTTP 服务 + JSON API）
 ├── tui.py          # 统一 TUI 菜单
-├── tui_kit.py      # 统一 TUI 界面工具包（与姐妹工具字节级一致，勿修改）
+├── tui_kit.py      # 统一 TUI 界面工具包（与各工具项目保持字节级一致，勿修改）
 ├── static/
 │   └── index.html  # Web 前端单页（内嵌 CSS/JS，无框架无构建）
 ├── tools.json      # 5 个工具的清单配置
