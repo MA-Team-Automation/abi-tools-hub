@@ -9,284 +9,441 @@
     --accent: #4f46e5;
     --accent-dark: #4338ca;
     --accent-soft: #eef2ff;
-    --bg: #f5f6f8;
+    --bg: #f7f7f5;
     --card: #ffffff;
-    --text: #1f2937;
+    --text: #1c1c1e;
     --muted: #6b7280;
-    --border: #e5e7eb;
+    --faint: #9ca3af;
+    --border: #ececea;
     --green: #16a34a;
-    --green-soft: #f0fdf4;
     --red: #dc2626;
-    --red-soft: #fef2f2;
-    --gray: #9ca3af;
-    --amber-bg: #fffbeb;
-    --amber-text: #b45309;
-    --radius: 12px;
+    --radius: 18px;
+    --shadow: 0 1px 2px rgba(16, 24, 40, 0.04), 0 6px 20px rgba(16, 24, 40, 0.05);
+    --shadow-hover: 0 2px 4px rgba(16, 24, 40, 0.05), 0 16px 40px rgba(16, 24, 40, 0.10);
     --mono: "Cascadia Mono", Consolas, "Courier New", monospace;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
+  [hidden] { display: none !important; }
   body {
     background: var(--bg);
     color: var(--text);
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
       "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
     line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
   }
-  .container { max-width: 1120px; margin: 0 auto; padding: 32px 24px 48px; }
-  [hidden] { display: none !important; }
+  .page { max-width: 1080px; margin: 0 auto; padding: 56px 28px 72px; position: relative; }
 
-  /* 顶部 */
-  header {
-    display: flex; flex-wrap: wrap; align-items: center; gap: 16px;
-    margin-bottom: 28px;
+  /* ---------- 通用动效 ---------- */
+  @keyframes rise {
+    from { opacity: 0; transform: translateY(16px); }
+    to { opacity: 1; transform: translateY(0); }
   }
-  .title-group { flex: 1; min-width: 240px; }
-  h1 { font-size: 26px; font-weight: 700; letter-spacing: 0.5px; }
-  .subtitle { color: var(--muted); font-size: 14px; margin-top: 2px; }
-  .overall {
-    display: inline-flex; align-items: center; gap: 8px;
-    font-size: 13px; color: var(--muted);
+  @keyframes rot { to { transform: rotate(360deg); } }
+  @keyframes slide {
+    0% { left: -45%; }
+    100% { left: 105%; }
+  }
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(4px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  /* ---------- 提示条 ---------- */
+  .toast {
+    position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
+    z-index: 100; max-width: min(600px, calc(100vw - 48px));
+    background: #fff; color: var(--red);
+    border: 1px solid #f3d2d2; border-radius: 14px;
+    padding: 11px 20px; font-size: 14px;
+    box-shadow: 0 12px 32px rgba(16, 24, 40, 0.12);
+    animation: fadeIn 0.25s ease;
+  }
+
+  /* ---------- 底部浮起提示（Hub 更新 / 权限引导，可叠放） ---------- */
+  .toast-stack {
+    position: fixed; bottom: 26px; left: 50%; transform: translateX(-50%);
+    z-index: 100; display: flex; flex-direction: column;
+    gap: 10px; align-items: center;
+    max-width: calc(100vw - 48px);
+  }
+  .hub-toast {
+    display: flex; align-items: center; gap: 14px;
     background: var(--card); border: 1px solid var(--border);
-    border-radius: 999px; padding: 6px 14px;
+    border-radius: 14px; padding: 11px 12px 11px 20px;
+    font-size: 13.5px; color: var(--text);
+    box-shadow: 0 18px 48px rgba(16, 24, 40, 0.16);
+    animation: hubRise 0.4s ease;
   }
-  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--gray); flex: none; }
-  .dot.green { background: var(--green); }
-  .dot.red { background: var(--red); }
-  .dot.busy { background: var(--accent); animation: pulse 1s ease-in-out infinite; }
-  @keyframes pulse { 50% { opacity: 0.35; } }
+  @keyframes hubRise {
+    from { opacity: 0; transform: translateY(12px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .hub-toast .access-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--red); flex: none;
+  }
+  .hub-toast .access-texts { display: flex; flex-direction: column; gap: 1px; }
+  .hub-toast .access-texts small { font-size: 11.5px; color: var(--muted); }
+  .hub-toast-btn {
+    border: none; border-radius: 9px; background: var(--accent); color: #fff;
+    font-size: 13px; font-weight: 500; font-family: inherit;
+    padding: 7px 14px; cursor: pointer; flex: none;
+    transition: background 0.2s ease, transform 0.12s ease;
+  }
+  .hub-toast-btn:hover:not(:disabled) { background: var(--accent-dark); }
+  .hub-toast-btn:active:not(:disabled) { transform: scale(0.95); }
+  .hub-toast-btn:disabled { opacity: 0.7; cursor: default; }
+  .hub-toast-close {
+    border: none; background: none; color: var(--faint);
+    font-size: 17px; line-height: 1; cursor: pointer;
+    padding: 4px 6px; border-radius: 7px; flex: none;
+    transition: color 0.2s ease, background 0.2s ease;
+  }
+  .hub-toast-close:hover { color: var(--muted); background: #f3f3f1; }
 
-  /* 按钮 */
-  .btn {
-    border: 1px solid var(--border); background: var(--card); color: var(--text);
-    border-radius: 8px; padding: 8px 16px; font-size: 14px; cursor: pointer;
-    transition: background 0.15s, border-color 0.15s, opacity 0.15s;
-    font-family: inherit;
+  /* ---------- 主页 · 标题区 ---------- */
+  .hero { text-align: center; margin-bottom: 44px; }
+  .hero h1 {
+    font-size: 34px; font-weight: 700; letter-spacing: 1px;
+    animation: rise 0.5s ease both;
   }
-  .btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
-  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
-  .btn.primary:hover:not(:disabled) { background: var(--accent-dark); color: #fff; }
-  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
-  .btn.sm { padding: 5px 12px; font-size: 13px; }
-  .btn.text {
-    border: none; background: none; color: var(--muted);
-    padding: 5px 4px; font-size: 13px; text-decoration: underline;
-    text-underline-offset: 3px; text-decoration-color: var(--border);
+  .hero .subtitle {
+    color: var(--muted); font-size: 15px; margin-top: 8px; font-weight: 400;
+    animation: rise 0.5s ease 0.08s both;
   }
-  .btn.text:hover:not(:disabled) { color: var(--accent); text-decoration-color: var(--accent); }
-  .spinner {
-    display: inline-block; width: 11px; height: 11px; margin-right: 6px;
-    border: 2px solid currentColor; border-top-color: transparent;
-    border-radius: 50%; vertical-align: -1px; flex: none;
-    animation: spin 0.7s linear infinite;
+  .icon-btn {
+    position: absolute; top: 56px; right: 28px;
+    width: 36px; height: 36px; border-radius: 50%;
+    border: 1px solid var(--border); background: var(--card);
+    display: inline-flex; align-items: center; justify-content: center;
+    cursor: pointer; color: var(--muted);
+    box-shadow: var(--shadow);
+    transition: color 0.2s ease, border-color 0.2s ease, transform 0.15s ease;
   }
-  @keyframes spin { to { transform: rotate(360deg); } }
+  .icon-btn:hover { color: var(--accent); border-color: #d5d5f5; }
+  .icon-btn:active { transform: scale(0.92); }
+  .icon-btn svg { width: 16px; height: 16px; }
+  .icon-btn.spinning svg { animation: rot 1s linear infinite; }
 
-  /* 徽标 */
-  .badge {
-    display: inline-flex; align-items: center; gap: 5px;
-    font-size: 12px; line-height: 1;
-    border-radius: 999px; padding: 4px 10px;
-    background: var(--accent-soft); color: var(--accent); font-weight: 600;
+  /* 标题下方状态条：细如发丝的 shimmer 进度 */
+  .status-strip {
+    margin-top: 20px; opacity: 0;
+    transition: opacity 0.4s ease;
+    animation: rise 0.5s ease 0.14s both;
   }
-  .badge.warn { background: var(--amber-bg); color: var(--amber-text); }
-  .badge.plain { background: #f3f4f6; color: var(--muted); font-weight: 500; }
-  .badge.ok { background: var(--green-soft); color: var(--green); }
-  .badge.err { background: var(--red-soft); color: var(--red); }
+  .status-strip.busy, .status-strip.done { opacity: 1; }
+  .hairline {
+    width: 200px; height: 2px; margin: 0 auto 8px;
+    border-radius: 2px; background: #e9e9e6;
+    position: relative; overflow: hidden;
+  }
+  .hairline-bar {
+    position: absolute; top: 0; left: -45%; height: 100%; width: 45%;
+    border-radius: 2px;
+    background: linear-gradient(90deg, transparent, var(--accent), transparent);
+    animation: slide 1.3s ease-in-out infinite;
+  }
+  .status-strip.done .hairline-bar {
+    animation: none; left: 0; width: 100%;
+    background: var(--green);
+    transition: width 0.3s ease;
+  }
+  .status-text { font-size: 12.5px; color: var(--faint); text-align: center; }
+  .status-strip.done .status-text { color: var(--green); }
 
-  /* 工具卡片 */
+  /* ---------- 主页 · 工具卡片网格 ---------- */
   .grid {
-    display: grid; gap: 18px;
-    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-    margin-bottom: 28px;
+    display: grid; gap: 22px;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
   }
   .card {
     background: var(--card); border: 1px solid var(--border);
-    border-radius: var(--radius); padding: 20px;
-    box-shadow: 0 1px 3px rgba(16, 24, 40, 0.06);
+    border-radius: var(--radius); padding: 26px 24px 22px;
+    box-shadow: var(--shadow); cursor: pointer;
     display: flex; flex-direction: column; gap: 10px;
+    position: relative;
+    transition: transform 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease;
+    animation: rise 0.55s ease both;
+    animation-delay: var(--d, 0ms);
   }
-  .card.clickable { cursor: pointer; transition: border-color 0.15s, box-shadow 0.15s; }
-  .card.clickable:hover { border-color: var(--accent); box-shadow: 0 4px 12px rgba(79, 70, 229, 0.12); }
-  .card-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-  .card-title { font-size: 16px; font-weight: 600; }
-  .card-desc { font-size: 13px; color: var(--muted); min-height: 2.6em; }
-  .meta { font-size: 13px; color: var(--muted); display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-  .meta .label { color: var(--gray); }
-  .commit {
-    font-size: 12px; color: var(--muted);
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  .card:hover {
+    transform: translateY(-4px);
+    box-shadow: var(--shadow-hover);
+    border-color: #e2e2f8;
   }
-  .env { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); }
-  .card-actions { display: flex; gap: 8px; margin-top: auto; padding-top: 6px; align-items: center; }
-  .card-actions .btn:not(.text) { flex: 1; }
+  .badge-icon {
+    width: 46px; height: 46px; border-radius: 14px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 19px; font-weight: 600;
+    margin-bottom: 4px;
+  }
+  .tint-0 { background: #eef2ff; color: #4f46e5; }
+  .tint-1 { background: #ecfdf5; color: #0f766e; }
+  .tint-2 { background: #fff7ed; color: #c2410c; }
+  .tint-3 { background: #fdf2f8; color: #be185d; }
+  .tint-4 { background: #f0f9ff; color: #0369a1; }
+  .card-title { font-size: 16.5px; font-weight: 600; letter-spacing: 0.2px; }
+  .card-desc {
+    font-size: 13.5px; color: var(--muted); line-height: 1.65;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+    overflow: hidden; min-height: 2.9em;
+  }
+  .card-enter {
+    font-size: 13px; color: var(--accent); font-weight: 500;
+    opacity: 0; transform: translateX(-4px);
+    transition: opacity 0.25s ease, transform 0.25s ease;
+    margin-top: 2px;
+  }
+  .card:hover .card-enter { opacity: 1; transform: translateX(0); }
 
-  /* 全局日志 / 输出控制台 */
-  .log-panel {
-    background: #111827; border-radius: var(--radius);
-    box-shadow: 0 1px 3px rgba(16, 24, 40, 0.2);
-    overflow: hidden;
-  }
-  .log-head {
-    display: flex; align-items: center; justify-content: space-between; gap: 12px;
-    padding: 10px 16px; border-bottom: 1px solid #1f2937;
-    color: #9ca3af; font-size: 13px;
-  }
-  .log-head .head-left { display: flex; align-items: center; gap: 10px; min-width: 0; }
-  .log-head .head-title { flex: none; }
-  .log-body {
-    height: 240px; overflow-y: auto; padding: 12px 16px;
-    font-family: var(--mono);
-    font-size: 12.5px; line-height: 1.7; color: #d1d5db;
-    white-space: pre-wrap; word-break: break-all;
-  }
-  .log-body .empty { color: #4b5563; }
-  .console-panel .log-body { height: 320px; }
-  .console-toggle {
-    border: 1px solid #374151; background: none; color: #9ca3af;
-    border-radius: 6px; padding: 3px 10px; font-size: 12px; cursor: pointer;
-    font-family: inherit; flex: none;
-  }
-  .console-toggle:hover { border-color: #6b7280; color: #d1d5db; }
-
-  /* 错误提示条 */
-  .toast {
-    position: fixed; top: 18px; left: 50%; transform: translateX(-50%);
-    z-index: 100; max-width: min(640px, calc(100vw - 48px));
-    background: var(--red-soft); color: var(--red);
-    border: 1px solid #fecaca; border-radius: 10px;
-    padding: 10px 18px; font-size: 14px;
-    box-shadow: 0 8px 24px rgba(220, 38, 38, 0.15);
-  }
-
-  /* 工作台 */
-  .back-link {
+  /* ---------- 工具页 ---------- */
+  .tool-header { margin-bottom: 30px; animation: rise 0.45s ease both; }
+  .back {
     display: inline-flex; align-items: center; gap: 6px;
-    color: var(--muted); text-decoration: none; font-size: 14px;
-    margin-bottom: 14px;
+    color: var(--muted); text-decoration: none; font-size: 13.5px;
+    margin-bottom: 16px; transition: color 0.2s ease;
   }
-  .back-link:hover { color: var(--accent); }
-  .workbench {
-    display: grid; gap: 18px;
-    grid-template-columns: minmax(0, 1fr) 300px;
-    margin-bottom: 18px;
-  }
-  @media (max-width: 900px) {
-    .workbench { grid-template-columns: 1fr; }
-  }
-  .actions-col { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
+  .back:hover { color: var(--accent); }
+  .tool-header h1 { font-size: 26px; font-weight: 700; letter-spacing: 0.5px; }
+  .tool-header .subtitle { color: var(--muted); font-size: 14px; margin-top: 6px; }
+
+  .actions { display: flex; flex-direction: column; gap: 20px; }
   .action-card {
     background: var(--card); border: 1px solid var(--border);
-    border-radius: var(--radius); padding: 20px;
-    box-shadow: 0 1px 3px rgba(16, 24, 40, 0.06);
-    display: flex; flex-direction: column; gap: 12px;
+    border-radius: var(--radius); padding: 24px 26px;
+    box-shadow: var(--shadow);
+    position: relative; overflow: hidden;
+    display: flex; flex-direction: column; gap: 16px;
+    transition: box-shadow 0.25s ease;
+    animation: rise 0.5s ease both;
+    animation-delay: var(--d, 0ms);
   }
-  .action-title { font-size: 15px; font-weight: 600; display: flex; align-items: center; gap: 10px; }
-  .action-desc { font-size: 13px; color: var(--muted); }
-  .form-grid { display: flex; flex-direction: column; gap: 12px; }
+  .action-card:hover { box-shadow: var(--shadow-hover); }
+
+  /* 卡片顶部运行进度条 */
+  .run-progress {
+    position: absolute; top: 0; left: 0; right: 0; height: 3px;
+    background: #f0f0ee; opacity: 0; transition: opacity 0.3s ease;
+    overflow: hidden;
+  }
+  .action-card.running .run-progress,
+  .action-card.done .run-progress,
+  .action-card.failed .run-progress { opacity: 1; }
+  .run-progress-bar {
+    position: absolute; top: 0; left: -45%; height: 100%; width: 45%;
+    background: linear-gradient(90deg, transparent, var(--accent), transparent);
+    animation: slide 1.15s ease-in-out infinite;
+  }
+  /* 拿到真实百分比后切换为 determinate 模式：纯色 + 平滑 width 过渡 */
+  .action-card.running.has-progress .run-progress-bar {
+    animation: none; left: 0; width: 0;
+    background: var(--accent);
+    transition: width 0.3s ease;
+  }
+  .action-card.done .run-progress-bar {
+    animation: none; left: 0; width: 100%; background: var(--green);
+    transition: width 0.35s ease;
+  }
+  .action-card.failed .run-progress-bar {
+    animation: none; left: 0; width: 100%; background: var(--red);
+    transition: width 0.35s ease;
+  }
+
+  .action-top {
+    display: flex; align-items: flex-start; justify-content: space-between; gap: 20px;
+  }
+  .action-head { min-width: 0; }
+  .action-title { font-size: 16px; font-weight: 600; }
+  .action-desc { font-size: 13px; color: var(--muted); margin-top: 4px; }
+
+  /* 运行按钮 */
+  .run-btn {
+    flex: none; min-width: 92px; height: 40px;
+    border: none; border-radius: 12px;
+    background: var(--accent); color: #fff;
+    font-size: 14px; font-weight: 500; font-family: inherit;
+    cursor: pointer; padding: 0 22px;
+    display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+    box-shadow: 0 4px 14px rgba(79, 70, 229, 0.28);
+    transition: background 0.2s ease, transform 0.12s ease, box-shadow 0.2s ease, opacity 0.2s ease;
+  }
+  .run-btn:hover:not(:disabled) { background: var(--accent-dark); box-shadow: 0 6px 18px rgba(79, 70, 229, 0.34); }
+  .run-btn:active:not(:disabled) { transform: scale(0.96); }
+  .run-btn:disabled { opacity: 0.75; cursor: default; }
+  .run-btn .loader {
+    display: none; width: 15px; height: 15px;
+    border: 2px solid rgba(255, 255, 255, 0.35); border-top-color: #fff;
+    border-radius: 50%; animation: rot 0.7s linear infinite;
+  }
+  .action-card.running .run-btn .loader { display: inline-block; }
+  .action-card.running .run-btn .run-btn-label { display: none; }
+
+  /* 表单 */
+  .fields { display: flex; flex-direction: column; gap: 14px; }
   .field label {
-    display: block; font-size: 13px; color: var(--muted); margin-bottom: 4px;
+    display: block; font-size: 12.5px; color: var(--muted);
+    margin-bottom: 5px; font-weight: 500;
   }
   .field label .req { color: var(--red); margin-left: 2px; }
   .field input, .field select {
-    width: 100%; border: 1px solid var(--border); border-radius: 8px;
-    padding: 8px 12px; font-size: 13.5px; font-family: inherit;
-    background: #fff; color: var(--text);
-    transition: border-color 0.15s, box-shadow 0.15s;
+    width: 100%; border: 1px solid var(--border); border-radius: 12px;
+    padding: 10px 14px; font-size: 13.5px; font-family: inherit;
+    background: #fbfbfa; color: var(--text);
+    transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
   }
+  .field input:hover, .field select:hover { border-color: #d8d8d4; }
   .field input:focus, .field select:focus {
     outline: none; border-color: var(--accent);
-    box-shadow: 0 0 0 3px var(--accent-soft);
+    background: #fff;
+    box-shadow: 0 0 0 3.5px var(--accent-soft);
   }
   .field input.path { font-family: var(--mono); font-size: 12.5px; }
-  .action-footer { display: flex; align-items: center; gap: 12px; }
+  .field label .hint {
+    margin-left: 8px; font-size: 11.5px; color: var(--faint); font-weight: 400;
+  }
+  .select-wrap { position: relative; }
+  .select-wrap .mini-spinner {
+    position: absolute; right: 34px; top: 50%; margin-top: -7px;
+    width: 14px; height: 14px;
+    border: 2px solid #d9d9f0; border-top-color: var(--accent);
+    border-radius: 50%; animation: rot 0.7s linear infinite;
+    pointer-events: none;
+  }
+  .field select {
+    appearance: none; -webkit-appearance: none; cursor: pointer;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 14px center;
+    padding-right: 38px;
+  }
 
-  /* 最近任务 */
-  .jobs-panel {
-    background: var(--card); border: 1px solid var(--border);
-    border-radius: var(--radius);
-    box-shadow: 0 1px 3px rgba(16, 24, 40, 0.06);
-    display: flex; flex-direction: column; overflow: hidden;
-    max-height: 560px;
+  /* 运行中状态行：阶段文案 + 已耗时 */
+  .run-status {
+    display: flex; align-items: center; justify-content: space-between;
+    font-size: 13px; color: var(--muted);
+    animation: fadeIn 0.3s ease;
   }
-  .jobs-head {
-    padding: 12px 16px; border-bottom: 1px solid var(--border);
-    font-size: 14px; font-weight: 600;
+  .run-status .phase::before {
+    content: ""; display: inline-block;
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--accent); margin-right: 8px; vertical-align: 1px;
+    animation: pulse 1.2s ease-in-out infinite;
   }
-  .jobs-list { overflow-y: auto; padding: 6px; }
-  .job-item {
-    display: block; width: 100%; text-align: left;
-    border: none; background: none; cursor: pointer; font-family: inherit;
-    border-radius: 8px; padding: 9px 10px;
-    display: flex; flex-direction: column; gap: 4px;
+  @keyframes pulse { 50% { opacity: 0.3; } }
+  .run-status .elapsed { font-family: var(--mono); font-size: 12px; color: var(--faint); }
+  .run-status .run-meta { display: inline-flex; align-items: center; gap: 10px; flex: none; }
+  .run-status .pct {
+    font-family: var(--mono); font-size: 12px; font-weight: 600;
+    color: var(--accent);
   }
-  .job-item:hover { background: #f3f4f6; }
-  .job-item.active { background: var(--accent-soft); }
-  .job-item .job-top {
-    display: flex; align-items: center; justify-content: space-between; gap: 8px;
-    font-size: 13px; font-weight: 500; color: var(--text);
+
+  /* 完成态 */
+  .result {
+    display: flex; align-items: center; gap: 10px;
+    font-size: 14px; font-weight: 500;
+    animation: fadeIn 0.3s ease;
   }
-  .job-item .job-time { font-size: 12px; color: var(--gray); }
-  .jobs-empty { padding: 18px 16px; font-size: 13px; color: var(--gray); }
+  .result-ok { color: var(--green); }
+  .result-err { color: var(--red); flex-direction: column; align-items: flex-start; gap: 6px; }
+  .check { width: 26px; height: 26px; flex: none; }
+  .check circle {
+    fill: none; stroke: var(--green); stroke-width: 2.5;
+    stroke-dasharray: 151; stroke-dashoffset: 151;
+    animation: drawCircle 0.55s ease-out forwards;
+  }
+  .check path {
+    fill: none; stroke: var(--green); stroke-width: 3;
+    stroke-linecap: round; stroke-linejoin: round;
+    stroke-dasharray: 40; stroke-dashoffset: 40;
+    animation: drawTick 0.35s ease-out 0.45s forwards;
+  }
+  @keyframes drawCircle { to { stroke-dashoffset: 0; } }
+  @keyframes drawTick { to { stroke-dashoffset: 0; } }
+
+  /* 失败 · 错误详情折叠区 */
+  .err-detail { width: 100%; }
+  .err-detail summary {
+    font-size: 12px; color: var(--faint); cursor: pointer;
+    list-style: none; user-select: none;
+    transition: color 0.2s ease;
+  }
+  .err-detail summary::-webkit-details-marker { display: none; }
+  .err-detail summary::before { content: "▸ "; font-size: 10px; }
+  .err-detail[open] summary::before { content: "▾ "; }
+  .err-detail summary:hover { color: var(--muted); }
+  .err-detail pre {
+    margin-top: 8px; padding: 12px 14px;
+    background: #fafafa; border: 1px solid var(--border); border-radius: 10px;
+    font-family: var(--mono); font-size: 12px; line-height: 1.65;
+    color: var(--muted); white-space: pre-wrap; word-break: break-all;
+    max-height: 180px; overflow-y: auto;
+  }
+
+  .empty-note {
+    background: var(--card); border: 1px dashed var(--border);
+    border-radius: var(--radius); padding: 28px;
+    color: var(--faint); font-size: 13.5px; text-align: center;
+  }
+
+  /* ---------- 响应式 ---------- */
+  @media (max-width: 720px) {
+    .page { padding: 40px 18px 56px; }
+    .grid { grid-template-columns: 1fr; }
+    .hero h1 { font-size: 28px; }
+    .icon-btn { top: 40px; right: 18px; }
+    .action-top { flex-direction: column; }
+    .run-btn { width: 100%; }
+  }
 </style>
 </head>
 <body>
 <div id="toast" class="toast" hidden></div>
-
-<div class="container">
-  <!-- ========== 视图一：仪表盘 ========== -->
-  <div id="view-dashboard">
-    <header>
-      <div class="title-group">
-        <h1>ABI 工具箱</h1>
-        <p class="subtitle">ABI 工具集统一控制台：代码更新、环境搭建与在线使用</p>
-      </div>
-      <span class="overall"><span class="dot" id="overall-dot"></span><span id="overall-text">加载中…</span></span>
-      <button class="btn primary" id="refresh-all-btn" onclick="refreshAll()">全部更新并搭建环境</button>
-    </header>
-
-    <main class="grid" id="grid"></main>
-
-    <section class="log-panel">
-      <div class="log-head">
-        <span class="head-title">运行日志</span>
-        <span id="log-count"></span>
-      </div>
-      <div class="log-body" id="log-body"><div class="empty">暂无日志</div></div>
-    </section>
+<div class="toast-stack">
+  <div id="access-toast" class="hub-toast" hidden>
+    <span class="access-dot"></span>
+    <span class="access-texts">
+      <span>无法访问工具仓库</span>
+      <small>请先申请加入 MA-Team-Automation 组织，并完成 GitHub 登录</small>
+    </span>
+    <button class="hub-toast-btn" onclick="openOrgPage()">申请加入</button>
+    <button class="hub-toast-close" onclick="dismissAccessToast()" aria-label="关闭">&times;</button>
   </div>
+  <div id="hub-toast" class="hub-toast" hidden>
+    <span id="hub-toast-text">已更新到最新版本</span>
+    <button class="hub-toast-btn" id="hub-restart-btn" onclick="restartHub()">重启生效</button>
+    <button class="hub-toast-close" onclick="dismissHubToast()" aria-label="关闭">&times;</button>
+  </div>
+</div>
 
-  <!-- ========== 视图二：工具工作台 ========== -->
-  <div id="view-tool" hidden>
-    <a class="back-link" href="#/">&larr; 返回总览</a>
-    <header>
-      <div class="title-group">
-        <h1 id="tool-name">…</h1>
-        <p class="subtitle" id="tool-desc"></p>
-      </div>
-      <span class="overall"><span class="dot" id="tool-env-dot"></span><span id="tool-env-text">加载中…</span></span>
-      <button class="btn text" id="tool-launch-btn" onclick="launchTool()">在终端中打开</button>
-    </header>
-    <div class="meta" id="tool-branch-meta" style="margin:-14px 0 20px;"></div>
-
-    <div class="workbench">
-      <div class="actions-col" id="actions-col"></div>
-      <aside class="jobs-panel">
-        <div class="jobs-head">最近任务</div>
-        <div class="jobs-list" id="jobs-list"><div class="jobs-empty">暂无任务</div></div>
-      </aside>
+<!-- ========== 视图一 · 主页 ========== -->
+<div class="page" id="view-home">
+  <button class="icon-btn" id="refresh-btn" title="检查更新" onclick="refreshAll()" aria-label="检查更新">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+         stroke-linecap="round" stroke-linejoin="round">
+      <path d="M21 12a9 9 0 1 1-2.64-6.36"/>
+      <path d="M21 3v6h-6"/>
+    </svg>
+  </button>
+  <header class="hero">
+    <h1>ABI 工具箱</h1>
+    <p class="subtitle">让重复的工作，一键完成</p>
+    <div class="status-strip" id="status-strip">
+      <div class="hairline"><div class="hairline-bar"></div></div>
+      <p class="status-text" id="status-text">正在检查更新…</p>
     </div>
+  </header>
+  <main class="grid" id="grid"></main>
+</div>
 
-    <section class="log-panel console-panel">
-      <div class="log-head">
-        <div class="head-left">
-          <span class="head-title">输出控制台</span>
-          <span id="console-job-info"></span>
-        </div>
-        <button class="console-toggle" id="follow-btn" onclick="toggleFollow()">暂停滚动</button>
-      </div>
-      <div class="log-body" id="console-body"><div class="empty">运行一个操作，或点击右侧历史任务查看输出</div></div>
-    </section>
-  </div>
+<!-- ========== 视图二 · 工具页 ========== -->
+<div class="page" id="view-tool" hidden>
+  <header class="tool-header">
+    <a class="back" href="#/">&larr; 返回</a>
+    <h1 id="tool-name">…</h1>
+    <p class="subtitle" id="tool-desc"></p>
+  </header>
+  <main class="actions" id="actions"></main>
 </div>
 
 <script>
@@ -294,19 +451,21 @@
 
 /* ================= 全局状态 ================= */
 const state = {
-  tools: null,          // /api/tools 缓存（含 actions 定义）
-  status: null,         // /api/status 缓存
-  currentTool: null,    // 当前工作台工具 id（仪表盘时为 null）
-  lastLogSeq: 0,        // 全局日志增量序号
-  jobs: [],             // /api/jobs 缓存
-  activeRuns: {},       // "toolId/actionId" -> jobId，运行中禁用对应按钮
-  consoleJob: null,     // 控制台当前展示的任务 id
-  consoleSince: 0,      // 控制台增量序号
-  consoleRunning: false,
-  follow: true,         // 控制台自动滚底
+  tools: null,        // /api/tools 缓存（含 actions 定义）
+  currentTool: null,  // 当前工具页 id（主页时为 null）
+  refreshing: false,  // 后台是否正在检查更新
+  statusFailed: false,
 };
+const runs = {};      // "toolId/actionId" -> 运行态上下文
+
+const PHASES = ["正在读取文件…", "正在处理数据…", "正在校验结果…", "即将完成…"];
+const POLL_MS = 1200;
+const PHASE_MS = 3000;
+const SUCCESS_RESET_MS = 2800;
 
 /* ================= 工具函数 ================= */
+function el(id) { return document.getElementById(id); }
+
 function esc(s) {
   return String(s ?? "").replace(/[&<>"']/g, c =>
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -314,11 +473,11 @@ function esc(s) {
 
 let toastTimer = null;
 function toast(message) {
-  const el = document.getElementById("toast");
-  el.textContent = message;
-  el.hidden = false;
+  const t = el("toast");
+  t.textContent = message;
+  t.hidden = false;
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => { el.hidden = true; }, 4500);
+  toastTimer = setTimeout(() => { t.hidden = true; }, 4500);
 }
 
 async function apiGet(url) {
@@ -353,171 +512,201 @@ function cleanPath(v) {
   return v.replace(/^["']+|["']+$/g, "").trim();
 }
 
-function statusBadge(status, exitCode) {
-  if (status === "running") return `<span class="badge"><span class="spinner"></span>运行中</span>`;
-  if (status === "done") return `<span class="badge ok">成功 · 退出码 ${exitCode}</span>`;
-  return `<span class="badge err">失败 · 退出码 ${exitCode ?? "?"}</span>`;
+function fmtElapsed(ms) {
+  const total = Math.floor(ms / 1000);
+  const m = String(Math.floor(total / 60)).padStart(2, "0");
+  const s = String(total % 60).padStart(2, "0");
+  return `${m}:${s}`;
+}
+
+/* ---------- 真实进度解析 ---------- */
+// 从一条原始日志解析真实进度：先剥 ANSI，再按 \r 切片段（tqdm/rich 用 \r 覆盖
+// 同行），从最新片段向前找。返回 {percent, stage}，取不到为 null。
+function parseProgress(raw) {
+  const clean = String(raw).replace(/\x1b\[[0-9;]*[A-Za-z]/g, "");
+  const frags = clean.split("\r").map(s => s.trim()).filter(Boolean);
+  let percent = null, stage = null;
+  for (let i = frags.length - 1; i >= 0 && (percent === null || stage === null); i--) {
+    const f = frags[i];
+    if (percent === null) {
+      let m = f.match(/(\d+(?:\.\d+)?)%\|/);           // tqdm：45%|████| 123/456
+      if (!m) m = f.match(/\[\s*(\d+(?:\.\d+)?)%\]/);  // Spillover：[ 45%] ...
+      if (!m) m = f.match(/(\d+(?:\.\d+)?)%/);         // 通用百分比兜底
+      if (m) percent = Math.min(100, Math.max(0, parseFloat(m[1])));
+    }
+    if (stage === null) stage = extractStage(f);
+  }
+  return { percent, stage };
+}
+
+// 从单个片段提取有信息量的阶段文案（剥离进度条/百分比残留），无则返回 null
+function extractStage(frag) {
+  if (!frag || frag.startsWith("$")) return null;  // 跳过 argv 回显行
+  let s = frag;
+  const tm = s.match(/^(.*?)\d+(?:\.\d+)?%\|/);    // tqdm：取 % 前的 description
+  if (tm) {
+    s = tm[1];
+  } else {
+    s = s.replace(/\[\s*\d+(?:\.\d+)?%\]\s*/g, "")  // 去 [ 45%] 前缀
+         .replace(/\d+(?:\.\d+)?%/g, "");           // 去残留百分比
+  }
+  s = s.replace(/^[:：\s.…|]+/, "").replace(/[:：\s.…|]+$/, "").trim();
+  if (s.length < 2) return null;
+  return s.length > 40 ? s.slice(0, 40) + "…" : s;
 }
 
 /* ================= 路由 ================= */
 function route() {
   const m = (location.hash || "#/").match(/^#\/tool\/([\w-]+)$/);
-  if (m) showToolView(m[1]); else showDashboard();
+  if (m) showToolView(m[1]); else showHome();
 }
 window.addEventListener("hashchange", route);
 
-function showDashboard() {
+function showHome() {
   state.currentTool = null;
-  state.consoleJob = null;
-  state.consoleRunning = false;
-  document.getElementById("view-tool").hidden = true;
-  document.getElementById("view-dashboard").hidden = false;
+  el("view-tool").hidden = true;
+  el("view-home").hidden = false;
+  document.title = "ABI 工具箱";
   fetchStatus();
-  fetchLogs(true);
 }
 
 function showToolView(toolId) {
   state.currentTool = toolId;
-  state.consoleJob = null;
-  state.consoleSince = 0;
-  state.consoleRunning = false;
-  state.follow = true;
-  updateFollowBtn();
-  document.getElementById("view-dashboard").hidden = true;
-  document.getElementById("view-tool").hidden = false;
-  document.getElementById("console-body").innerHTML =
-    `<div class="empty">运行一个操作，或点击右侧历史任务查看输出</div>`;
-  document.getElementById("console-job-info").textContent = "";
+  el("view-home").hidden = true;
+  el("view-tool").hidden = false;
   renderToolView();
-  fetchTools().then(renderToolView).catch(e => toast(`加载工具定义失败：${e.message}`));
-  fetchStatus();
-  fetchJobs();
+  fetchTools()
+    .then(renderToolView)
+    .catch(e => toast(`加载工具定义失败：${e.message}`));
 }
 
-/* ================= 仪表盘 ================= */
-function renderCards(data) {
-  const grid = document.getElementById("grid");
-  grid.innerHTML = data.tools.map(t => {
-    const running = t.running;
-    const busy = `<span class="spinner"></span>`;
-    const disabled = running ? "disabled" : "";
+/* ================= 主页 ================= */
+async function fetchTools() {
+  if (!state.tools) state.tools = await apiGet("/api/tools");
+}
 
-    let badges = "";
-    if (!t.exists) {
-      badges = `<span class="badge warn">未克隆</span>`;
-    } else {
-      if (t.behind === null) badges = `<span class="badge plain">远程未知</span>`;
-      else if (t.behind > 0) badges = `<span class="badge warn">可更新 · 落后 ${t.behind}</span>`;
-      else badges = `<span class="badge">已是最新</span>`;
-      if (t.ahead > 0) badges += ` <span class="badge plain">超前 ${t.ahead}</span>`;
-    }
-
-    const env = t.env_ready
-      ? `<span class="env"><span class="dot green"></span>环境就绪</span>`
-      : `<span class="env"><span class="dot"></span>环境未搭建</span>`;
-    const branch = t.branch || "—";
-    const commit = t.last_commit ? esc(t.last_commit) : "暂无提交信息";
-
-    return `
-    <div class="card clickable" onclick="cardClick(event, '${t.id}')">
-      <div class="card-head">
-        <span class="card-title">${esc(t.display)}</span>
-        ${env}
-      </div>
+function renderCards() {
+  if (!state.tools) return;
+  el("grid").innerHTML = state.tools.tools.map((t, i) => `
+    <div class="card" style="--d:${i * 70}ms" onclick="location.hash='#/tool/${esc(t.id)}'">
+      <div class="badge-icon tint-${i % 5}"><span>${esc((t.display || t.name || "?").trim().charAt(0))}</span></div>
+      <div class="card-title">${esc(t.display)}</div>
       <p class="card-desc">${esc(t.description)}</p>
-      <div class="meta"><span class="label">分支</span>${esc(branch)} ${badges}</div>
-      <div class="commit" title="${commit}">${commit}</div>
-      <div class="card-actions">
-        <button class="btn sm" ${disabled} onclick="doAction('update','${t.id}')">${running === "update" ? busy : ""}更新</button>
-        <button class="btn sm" ${disabled} onclick="doAction('setup','${t.id}')">${running === "setup" ? busy : ""}搭建环境</button>
-        <button class="btn text" onclick="doAction('launch','${t.id}')">在终端中打开</button>
-      </div>
-    </div>`;
-  }).join("");
-
-  // 整体状态指示
-  const dot = document.getElementById("overall-dot");
-  const text = document.getElementById("overall-text");
-  const anyRunning = data.refresh_running || data.tools.some(t => t.running);
-  const updates = data.tools.filter(t => t.update_available).length;
-  const notReady = data.tools.filter(t => !t.exists || !t.env_ready).length;
-  if (anyRunning) {
-    dot.className = "dot busy";
-    text.textContent = data.refresh_running ? "正在全量更新与搭建…" : "有操作进行中…";
-  } else if (updates > 0 || notReady > 0) {
-    dot.className = "dot";
-    text.textContent = `${updates} 个可更新 · ${notReady} 个环境未就绪`;
-  } else {
-    dot.className = "dot green";
-    text.textContent = "一切就绪";
-  }
-
-  const refreshBtn = document.getElementById("refresh-all-btn");
-  refreshBtn.disabled = data.refresh_running;
-  refreshBtn.innerHTML = data.refresh_running
-    ? `<span class="spinner"></span>正在更新与搭建…`
-    : "全部更新并搭建环境";
+      <div class="card-enter">进入 &rarr;</div>
+    </div>`).join("");
 }
 
-function cardClick(event, toolId) {
-  if (event.target.closest("button")) return;  // 点击按钮不跳转
-  location.hash = `#/tool/${toolId}`;
+// 标题下方状态条：busy → shimmer；完成后短暂显示「一切就绪」并淡出
+let stripState = "idle";  // idle | busy | done
+let stripTimer = null;
+function updateStrip(refreshing) {
+  const strip = el("status-strip");
+  const text = el("status-text");
+  const btn = el("refresh-btn");
+  btn.classList.toggle("spinning", refreshing);
+  if (refreshing) {
+    stripState = "busy";
+    clearTimeout(stripTimer);
+    strip.className = "status-strip busy";
+    text.textContent = "正在检查更新…";
+  } else if (stripState === "busy") {
+    stripState = "done";
+    strip.className = "status-strip done";
+    text.textContent = "一切就绪";
+    stripTimer = setTimeout(() => {
+      if (stripState === "done") {
+        strip.className = "status-strip";
+        stripState = "idle";
+      }
+    }, 2200);
+  }
 }
 
 async function fetchStatus() {
   try {
-    state.status = await apiGet("/api/status");
-    if (state.currentTool) renderToolStatus();
-    else renderCards(state.status);
-  } catch (e) { /* 下一轮再试 */ }
-}
-
-async function fetchLogs(force) {
-  if (state.currentTool) return;  // 工作台视图不拉全局日志
-  try {
-    if (force) state.lastLogSeq = state.lastLogSeq || 0;
-    const data = await apiGet(`/api/logs?since=${state.lastLogSeq}`);
-    const body = document.getElementById("log-body");
-    if (data.lines.length > 0) {
-      const empty = body.querySelector(".empty");
-      if (empty) empty.remove();
-      for (const line of data.lines) {
-        const div = document.createElement("div");
-        div.textContent = cleanLine(line);
-        body.appendChild(div);
-      }
-      body.scrollTop = body.scrollHeight;
-    }
-    state.lastLogSeq = data.last;
-    document.getElementById("log-count").textContent = `已显示至 #${data.last}`;
-  } catch (e) { /* 下一轮再试 */ }
-}
-
-async function doAction(action, id) {
-  try {
-    const res = await apiPost(`/api/${action}/${id}`);
-    if (res.ok === false) throw new Error(res.error || "操作失败");
-    if (res.message) toast(res.message);
+    const data = await apiGet("/api/status");
+    state.refreshing = Boolean(data.refreshing);
+    state.statusFailed = false;
+    updateStrip(state.refreshing);
+    maybeShowHubToast(data);
+    maybeShowAccessToast(data);
   } catch (e) {
-    toast(e.message);
+    if (!state.statusFailed) {
+      state.statusFailed = true;
+      toast(`状态检查失败：${e.message}`);
+    }
   }
-  fetchStatus();
+}
+
+/* ---------- Hub 更新提示与重启 ---------- */
+let hubToastDismissed = false;  // 手动关闭后本次会话不再出现
+let hubRestarting = false;
+
+function maybeShowHubToast(data) {
+  if (hubToastDismissed || hubRestarting) return;
+  if (data.hub && data.hub.updated) el("hub-toast").hidden = false;
+}
+
+function dismissHubToast() {
+  hubToastDismissed = true;
+  el("hub-toast").hidden = true;
+}
+
+/* ---------- 仓库权限引导 ---------- */
+let accessToastDismissed = false;  // 手动关闭后本次会话不再出现
+
+function maybeShowAccessToast(data) {
+  if (accessToastDismissed) return;
+  if (data.access_error) el("access-toast").hidden = false;
+}
+
+function dismissAccessToast() {
+  accessToastDismissed = true;
+  el("access-toast").hidden = true;
+}
+
+function openOrgPage() {
+  window.open("https://github.com/MA-Team-Automation", "_blank", "noopener");
+}
+
+async function restartHub() {
+  const btn = el("hub-restart-btn");
+  const text = el("hub-toast-text");
+  btn.disabled = true;
+  try {
+    await apiPost("/api/restart");
+  } catch (e) {
+    text.textContent = e.message || "有任务正在运行，请稍后重启";
+    btn.disabled = false;
+    return;
+  }
+  hubRestarting = true;
+  text.textContent = "正在重启…";
+  btn.hidden = true;
+  // 旧进程约 0.5 秒后退出，稍等再开始探测新进程
+  setTimeout(probeHubAlive, 2500);
+}
+
+async function probeHubAlive() {
+  try {
+    await apiGet("/api/status");
+    location.reload();  // 服务已恢复，加载新版本页面
+  } catch (e) {
+    setTimeout(probeHubAlive, 2000);
+  }
 }
 
 async function refreshAll() {
   try {
     await apiPost("/api/refresh-all");
+    updateStrip(true);
   } catch (e) {
-    toast(`全量更新启动失败：${e.message}`);
+    toast(`检查更新启动失败：${e.message}`);
   }
   fetchStatus();
 }
 
-/* ================= 工具工作台 ================= */
-async function fetchTools() {
-  if (!state.tools) state.tools = await apiGet("/api/tools");
-}
-
+/* ================= 工具页 ================= */
 function currentToolDef() {
   if (!state.tools || !state.currentTool) return null;
   return state.tools.tools.find(t => t.id === state.currentTool) || null;
@@ -526,90 +715,166 @@ function currentToolDef() {
 function renderToolView() {
   const tool = currentToolDef();
   if (!tool) return;
-  document.getElementById("tool-name").textContent = tool.display;
-  document.getElementById("tool-desc").textContent = tool.description;
+  el("tool-name").textContent = tool.display;
+  el("tool-desc").textContent = tool.description;
   document.title = `${tool.display} · ABI 工具箱`;
-  renderToolStatus();
   renderActions(tool);
 }
 
-function renderToolStatus() {
-  const tool = currentToolDef();
-  if (!tool) return;
-  const st = state.status && state.status.tools.find(t => t.id === tool.id);
-
-  const envDot = document.getElementById("tool-env-dot");
-  const envText = document.getElementById("tool-env-text");
-  const branchMeta = document.getElementById("tool-branch-meta");
-  if (!st) {
-    envDot.className = "dot";
-    envText.textContent = "状态未知";
-    branchMeta.innerHTML = `<span class="label">分支</span>${esc(tool.branch || "—")}`;
-    return;
+function fieldHtml(spec) {
+  const req = spec.required ? `<span class="req">*</span>` : "";
+  const required = spec.required ? "required" : "";
+  const value = esc(spec.default || "");
+  const hint = spec.hint ? `<span class="hint">${esc(spec.hint)}</span>` : "";
+  let control;
+  if (Array.isArray(spec.options) && spec.options.length > 0) {
+    // 静态选项：渲染为下拉，default 对应的项默认选中
+    const opts = spec.options.map(o => {
+      const v = typeof o === "object" ? o.value : o;
+      const label = typeof o === "object" ? (o.label ?? o.value) : o;
+      const sel = String(v) === String(spec.default || "") ? " selected" : "";
+      return `<option value="${esc(v)}"${sel}>${esc(label)}</option>`;
+    }).join("");
+    control = selectWrap(`<select name="${esc(spec.key)}" ${required}>${opts}</select>`);
+  } else if (spec.options_from) {
+    // 动态选项：依赖字段填好后由 /api/inspect-file 加载，首项固定「（自动识别）」
+    control = selectWrap(`<select name="${esc(spec.key)}"><option value="">（自动识别）</option></select>`);
+  } else if (spec.type === "path") {
+    control = `<input class="path" type="text" name="${esc(spec.key)}" value="${value}"
+      placeholder="${esc(spec.placeholder || "请粘贴文件路径")}" ${required} spellcheck="false">`;
+  } else {
+    control = `<input type="text" name="${esc(spec.key)}" value="${value}"
+      placeholder="${esc(spec.placeholder || "")}" ${required} spellcheck="false">`;
   }
-  envDot.className = st.env_ready ? "dot green" : "dot";
-  envText.textContent = st.env_ready ? "环境就绪" : "环境未搭建";
+  return `<div class="field"><label>${esc(spec.label || spec.key)}${req}${hint}</label>${control}</div>`;
+}
 
-  let badges = "";
-  if (!st.exists) badges = `<span class="badge warn">未克隆</span>`;
-  else if (st.behind === null) badges = `<span class="badge plain">远程未知</span>`;
-  else if (st.behind > 0) badges = `<span class="badge warn">落后 ${st.behind}</span>`;
-  else badges = `<span class="badge">已是最新</span>`;
-  if (st.exists && st.ahead > 0) badges += ` <span class="badge plain">超前 ${st.ahead}</span>`;
-  branchMeta.innerHTML =
-    `<span class="label">分支</span>${esc(st.branch || tool.branch || "—")} ${badges}` +
-    (st.last_commit ? ` &nbsp;<span class="commit" title="${esc(st.last_commit)}">${esc(st.last_commit)}</span>` : "");
+function selectWrap(selectHtml) {
+  return `<div class="select-wrap">${selectHtml}<span class="mini-spinner" hidden></span></div>`;
 }
 
 function renderActions(tool) {
-  const col = document.getElementById("actions-col");
+  const col = el("actions");
   if (!tool.actions || tool.actions.length === 0) {
-    col.innerHTML = `<div class="action-card"><p class="action-desc">该工具暂未配置可在线运行的操作。</p></div>`;
+    col.innerHTML = `<div class="empty-note">该工具暂未配置可在线运行的操作。</div>`;
     return;
   }
-  col.innerHTML = tool.actions.map(action => {
-    const runKey = `${tool.id}/${action.id}`;
-    const running = Boolean(state.activeRuns[runKey]);
-    const fields = (action.inputs || []).map(spec => {
-      const req = spec.required ? `<span class="req">*</span>` : "";
-      const required = spec.required ? "required" : "";
-      const value = esc(spec.default || "");
-      const placeholder = esc(spec.placeholder || "");
-      let control;
-      if (Array.isArray(spec.options) && spec.options.length > 0) {
-        const opts = spec.options.map(o => {
-          const v = esc(typeof o === "object" ? o.value : o);
-          const label = esc(typeof o === "object" ? (o.label ?? o.value) : o);
-          const sel = String(v) === String(spec.default || "") ? "selected" : "";
-          return `<option value="${v}" ${sel}>${label}</option>`;
-        }).join("");
-        control = `<select name="${esc(spec.key)}" ${required}>${opts}</select>`;
-      } else if (spec.type === "path") {
-        control = `<input class="path" type="text" name="${esc(spec.key)}" value="${value}"
-          placeholder="${placeholder || "粘贴或拖入文件路径"}" ${required} spellcheck="false">`;
-      } else {
-        control = `<input type="text" name="${esc(spec.key)}" value="${value}"
-          placeholder="${placeholder}" ${required} spellcheck="false">`;
-      }
-      return `<div class="field"><label>${esc(spec.label || spec.key)}${req}</label>${control}</div>`;
-    }).join("");
-
+  col.innerHTML = tool.actions.map((a, i) => {
+    const key = `${tool.id}/${a.id}`;
+    const running = Boolean(runs[key] && runs[key].phase === "running");
+    const fields = (a.inputs || []).map(fieldHtml).join("");
+    const form = fields
+      ? `<form id="form-${esc(a.id)}" onsubmit="return runAction(event, '${esc(tool.id)}', '${esc(a.id)}')">
+           <div class="fields">${fields}</div>
+         </form>`
+      : `<form id="form-${esc(a.id)}" onsubmit="return runAction(event, '${esc(tool.id)}', '${esc(a.id)}')"></form>`;
     return `
-    <div class="action-card">
-      <div class="action-title">${esc(action.label)}</div>
-      <p class="action-desc">${esc(action.description || "")}</p>
-      <form onsubmit="return runAction(event, '${tool.id}', '${action.id}')">
-        <div class="form-grid">${fields}</div>
-        <div class="action-footer" style="margin-top:14px;">
-          <button class="btn primary sm" type="submit" id="run-btn-${esc(action.id)}" ${running ? "disabled" : ""}>
-            ${running ? `<span class="spinner"></span>运行中…` : "运行"}
-          </button>
+    <section class="action-card${running ? " running" : ""}" id="ac-${esc(a.id)}" style="--d:${i * 70}ms">
+      <div class="run-progress"><div class="run-progress-bar"></div></div>
+      <div class="action-top">
+        <div class="action-head">
+          <h3 class="action-title">${esc(a.label)}</h3>
+          <p class="action-desc">${esc(a.description || "")}</p>
         </div>
-      </form>
-    </div>`;
+        <button class="run-btn" type="submit" form="form-${esc(a.id)}" ${running ? "disabled" : ""}>
+          <span class="loader"></span><span class="run-btn-label">运行</span>
+        </button>
+      </div>
+      ${form}
+      <div class="run-status" id="rs-${esc(a.id)}" hidden>
+        <span class="phase" id="ph-${esc(a.id)}"></span>
+        <span class="run-meta">
+          <span class="pct" id="pct-${esc(a.id)}"></span>
+          <span class="elapsed" id="el-${esc(a.id)}">00:00</span>
+        </span>
+      </div>
+      <div class="result result-ok" id="ok-${esc(a.id)}" hidden>
+        <svg class="check" viewBox="0 0 52 52">
+          <circle cx="26" cy="26" r="24"/>
+          <path d="M15 27l7.5 7.5L37 19"/>
+        </svg>
+        <span>完成</span>
+      </div>
+      <div class="result result-err" id="err-${esc(a.id)}" hidden>
+        <span>执行失败，请检查输入文件后重试</span>
+        <details class="err-detail">
+          <summary>查看错误详情</summary>
+          <pre id="errlog-${esc(a.id)}"></pre>
+        </details>
+      </div>
+    </section>`;
   }).join("");
+  // 为含动态选项的表单挂依赖监听
+  for (const a of tool.actions) wireDynamicFields(tool, a);
 }
 
+/* ---------- 动态下拉选项（/api/inspect-file） ---------- */
+const inspectTokens = {};   // "formId:key" -> 递增令牌，丢弃过期响应
+const inspectTimers = {};   // "formId:key" -> 防抖定时器
+
+// 依赖字段变化后（防抖 500ms）加载动态选项
+function wireDynamicFields(tool, action) {
+  const form = el(`form-${action.id}`);
+  if (!form) return;
+  const dynSpecs = (action.inputs || []).filter(s => s.options_from);
+  if (dynSpecs.length === 0) return;
+  const onEdit = (e) => {
+    const name = e.target && e.target.name;
+    if (!name) return;
+    for (const spec of dynSpecs) {
+      if (!spec.options_from.depends_on.includes(name)) continue;
+      const tokenKey = `${form.id}:${spec.key}`;
+      clearTimeout(inspectTimers[tokenKey]);
+      inspectTimers[tokenKey] = setTimeout(
+        () => loadDynamicOptions(form, tool.id, spec), 500);
+    }
+  };
+  form.addEventListener("input", onEdit);
+  form.addEventListener("change", onEdit);  // select 的变更在部分浏览器不触发 input
+}
+
+async function loadDynamicOptions(form, toolId, spec) {
+  const sel = form.elements[spec.key];
+  if (!sel) return;
+  const of = spec.options_from;
+  const depPath = form.elements[of.depends_on[0]];
+  const depSheet = of.depends_on.length > 1 ? form.elements[of.depends_on[1]] : null;
+  const pathVal = depPath ? cleanPath(depPath.value) : "";
+  const sheetVal = depSheet ? depSheet.value.trim() : "";
+  const wrap = sel.closest(".select-wrap");
+  const spinner = wrap && wrap.querySelector(".mini-spinner");
+  const tokenKey = `${form.id}:${spec.key}`;
+  const token = (inspectTokens[tokenKey] = (inspectTokens[tokenKey] || 0) + 1);
+
+  // 文件路径未填时只保留「（自动识别）」
+  if (!pathVal) {
+    sel.innerHTML = `<option value="">（自动识别）</option>`;
+    return;
+  }
+  sel.disabled = true;
+  sel.innerHTML = `<option value="">加载中…</option>`;
+  if (spinner) spinner.hidden = false;
+  try {
+    const data = await apiPost("/api/inspect-file", {
+      tool_id: toolId, path: pathVal, what: of.what, sheet: sheetVal,
+    });
+    if (inspectTokens[tokenKey] !== token) return;  // 已有更新的请求
+    const opts = (data.options || []).map(o =>
+      `<option value="${esc(o)}">${esc(o)}</option>`).join("");
+    sel.innerHTML = `<option value="">（自动识别）</option>` + opts;
+  } catch (e) {
+    if (inspectTokens[tokenKey] !== token) return;
+    sel.innerHTML = `<option value="">（自动识别）</option>`;
+    toast(`选项加载失败：${e.message}`);
+  } finally {
+    if (inspectTokens[tokenKey] === token) {
+      sel.disabled = false;
+      if (spinner) spinner.hidden = true;
+    }
+  }
+}
+
+/* ---------- 运行状态机 ---------- */
 async function runAction(event, toolId, actionId) {
   event.preventDefault();
   const tool = currentToolDef();
@@ -621,143 +886,166 @@ async function runAction(event, toolId, actionId) {
 
   const params = {};
   for (const spec of action.inputs || []) {
-    const el = form.elements[spec.key];
-    if (!el) continue;
-    params[spec.key] = spec.type === "path" ? cleanPath(el.value) : el.value.trim();
+    const control = form.elements[spec.key];
+    if (!control) continue;
+    params[spec.key] = spec.type === "path" ? cleanPath(control.value) : control.value.trim();
   }
 
-  const runKey = `${toolId}/${actionId}`;
+  const key = `${toolId}/${actionId}`;
+  if (runs[key] && runs[key].phase === "running") return false;
+
+  let jobId;
   try {
     const res = await apiPost(`/api/run/${toolId}/${actionId}`, { params });
-    state.activeRuns[runKey] = res.job_id;
-    openJob(res.job_id);
-    fetchJobs();
-    renderActions(tool);  // 禁用运行按钮
+    jobId = res.job_id;
   } catch (e) {
     toast(`启动失败：${e.message}`);
+    return false;
   }
+  startRunUI(key, actionId, jobId);
   return false;
 }
 
-async function launchTool() {
-  if (!state.currentTool) return;
-  try {
-    await apiPost(`/api/launch/${state.currentTool}`);
-  } catch (e) {
-    toast(`启动失败：${e.message}`);
+function startRunUI(key, actionId, jobId) {
+  stopRunTimers(key);
+  const ctx = {
+    jobId, actionId,
+    phase: "running",
+    since: 0,
+    tail: [],            // 最近 20 行日志（仅失败时展示）
+    percent: null,       // 解析到的最新真实百分比（无进度输出的工具保持 null）
+    stage: null,         // 解析到的真实阶段文案（null 时用伪轮换文案兜底）
+    startTs: Date.now(),
+    phaseIdx: 0,
+    pollTimer: null, tickTimer: null, phaseTimer: null, resetTimer: null,
+  };
+  runs[key] = ctx;
+
+  const card = el(`ac-${actionId}`);
+  if (card) {
+    card.classList.remove("done", "failed", "has-progress");
+    card.classList.add("running");
+    const bar = card.querySelector(".run-progress-bar");
+    if (bar) bar.style.width = "";
+    const btn = card.querySelector(".run-btn");
+    if (btn) btn.disabled = true;
   }
+  hide(`ok-${actionId}`); hide(`err-${actionId}`); show(`rs-${actionId}`);
+  setText(`ph-${actionId}`, PHASES[0]);
+  setText(`el-${actionId}`, "00:00");
+  setText(`pct-${actionId}`, "");
+
+  ctx.tickTimer = setInterval(() => {
+    setText(`el-${actionId}`, fmtElapsed(Date.now() - ctx.startTs));
+  }, 1000);
+  ctx.phaseTimer = setInterval(() => {
+    if (ctx.stage) return;  // 已有真实阶段文案时不再轮换伪文案
+    ctx.phaseIdx = (ctx.phaseIdx + 1) % PHASES.length;
+    setText(`ph-${actionId}`, PHASES[ctx.phaseIdx]);
+  }, PHASE_MS);
+  pollJob(key);
 }
 
-/* ================= 任务列表与控制台 ================= */
-async function fetchJobs() {
-  if (!state.currentTool) return;
+// 把解析到的百分比应用到进度条（切换为 determinate 模式）
+function applyPercent(ctx) {
+  const card = el(`ac-${ctx.actionId}`);
+  if (!card) return;
+  card.classList.add("has-progress");
+  const bar = card.querySelector(".run-progress-bar");
+  if (bar) bar.style.width = `${ctx.percent}%`;
+  setText(`pct-${ctx.actionId}`, `${Math.round(ctx.percent)}%`);
+}
+
+async function pollJob(key) {
+  const ctx = runs[key];
+  if (!ctx || ctx.phase !== "running") return;
   try {
-    const data = await apiGet("/api/jobs");
-    state.jobs = data.jobs || [];
-    // 已结束的任务从 activeRuns 中移除并恢复按钮
-    let changed = false;
-    for (const [key, jobId] of Object.entries(state.activeRuns)) {
-      const job = state.jobs.find(j => j.id === jobId);
-      if (job && job.status !== "running") {
-        delete state.activeRuns[key];
-        changed = true;
+    const data = await apiGet(`/api/job/${ctx.jobId}?since=${ctx.since}`);
+    for (const line of data.lines || []) {
+      if (line.seq > ctx.since) ctx.since = line.seq;
+      ctx.tail.push(cleanLine(line.text));
+      if (ctx.tail.length > 20) ctx.tail.shift();
+      const p = parseProgress(line.text);
+      if (p.percent !== null) {
+        ctx.percent = p.percent;  // 多阶段任务允许回落，不强制单调
+        applyPercent(ctx);
+      }
+      if (p.stage) {
+        ctx.stage = p.stage;
+        setText(`ph-${ctx.actionId}`, p.stage);
       }
     }
-    renderJobsList();
-    if (changed) {
-      const tool = currentToolDef();
-      if (tool) renderActions(tool);
+    if (data.status !== "running") {
+      finishRun(key, data.status === "done", data.exit_code);
+      return;
     }
   } catch (e) { /* 下一轮再试 */ }
+  ctx.pollTimer = setTimeout(() => pollJob(key), POLL_MS);
 }
 
-function renderJobsList() {
-  const list = document.getElementById("jobs-list");
-  const jobs = state.jobs.filter(j => j.tool_id === state.currentTool);
-  if (jobs.length === 0) {
-    list.innerHTML = `<div class="jobs-empty">暂无任务</div>`;
-    return;
+function finishRun(key, ok, exitCode) {
+  const ctx = runs[key];
+  if (!ctx) return;
+  stopRunTimers(key);
+  const actionId = ctx.actionId;
+  const card = el(`ac-${actionId}`);
+  if (card) {
+    card.classList.remove("running");
+    card.classList.add(ok ? "done" : "failed");
+    // 内联 width 优先级高于 .done/.failed 的 CSS 规则，完成/失败时显式拉满
+    const bar = card.querySelector(".run-progress-bar");
+    if (bar) bar.style.width = "100%";
   }
-  list.innerHTML = jobs.map(j => {
-    const active = j.id === state.consoleJob ? "active" : "";
-    return `
-    <button class="job-item ${active}" onclick="openJob('${j.id}')">
-      <span class="job-top"><span>${esc(j.action_label)}</span>${statusBadge(j.status, j.exit_code)}</span>
-      <span class="job-time">${esc(j.started_at)} · ${esc(j.id)}</span>
-    </button>`;
-  }).join("");
-}
-
-// 打开一个任务到控制台：since=0 拉全量，运行中的继续 1 秒增量轮询
-async function openJob(jobId) {
-  state.consoleJob = jobId;
-  state.consoleSince = 0;
-  state.follow = true;
-  updateFollowBtn();
-  const body = document.getElementById("console-body");
-  body.innerHTML = `<div class="empty">加载中…</div>`;
-  renderJobsList();
-  try {
-    const data = await apiGet(`/api/job/${jobId}?since=0`);
-    body.innerHTML = "";
-    appendConsoleLines(data.lines);
-    updateConsoleStatus(data);
-  } catch (e) {
-    body.innerHTML = `<div class="empty">${esc(e.message)}</div>`;
-    document.getElementById("console-job-info").textContent = "";
-    state.consoleRunning = false;
+  hide(`rs-${actionId}`);
+  if (ok) {
+    ctx.phase = "done";
+    show(`ok-${actionId}`);
+    ctx.resetTimer = setTimeout(() => resetRunUI(key), SUCCESS_RESET_MS);
+  } else {
+    ctx.phase = "failed";
+    const log = ctx.tail.filter(l => l.trim()).slice(-20);
+    setText(`errlog-${actionId}`, log.join("\n") || `（无输出，退出码 ${exitCode ?? "?"}）`);
+    show(`err-${actionId}`);
+    const btn = card && card.querySelector(".run-btn");
+    if (btn) btn.disabled = false;
   }
 }
 
-async function pollConsole() {
-  if (!state.consoleJob || !state.consoleRunning) return;
-  try {
-    const data = await apiGet(`/api/job/${state.consoleJob}?since=${state.consoleSince}`);
-    appendConsoleLines(data.lines);
-    updateConsoleStatus(data);
-  } catch (e) { /* 下一轮再试 */ }
-}
-
-function appendConsoleLines(lines) {
-  if (!lines || lines.length === 0) return;
-  const body = document.getElementById("console-body");
-  const empty = body.querySelector(".empty");
-  if (empty) empty.remove();
-  for (const line of lines) {
-    const div = document.createElement("div");
-    div.textContent = cleanLine(line.text);
-    body.appendChild(div);
-    if (line.seq > state.consoleSince) state.consoleSince = line.seq;
+function resetRunUI(key) {
+  const ctx = runs[key];
+  if (!ctx) return;
+  const actionId = ctx.actionId;
+  const card = el(`ac-${actionId}`);
+  if (card) {
+    card.classList.remove("done", "failed", "running", "has-progress");
+    const bar = card.querySelector(".run-progress-bar");
+    if (bar) bar.style.width = "";
+    const btn = card.querySelector(".run-btn");
+    if (btn) btn.disabled = false;
   }
-  if (state.follow) body.scrollTop = body.scrollHeight;
+  hide(`ok-${actionId}`);
+  delete runs[key];
 }
 
-function updateConsoleStatus(data) {
-  document.getElementById("console-job-info").innerHTML =
-    `<span style="font-family:var(--mono);">${esc(state.consoleJob)}</span> ${statusBadge(data.status, data.exit_code)}`;
-  state.consoleRunning = data.status === "running";
-  if (!state.consoleRunning) fetchJobs();  // 落定后刷新任务列表与按钮状态
-}
-
-function toggleFollow() {
-  state.follow = !state.follow;
-  updateFollowBtn();
-  if (state.follow) {
-    const body = document.getElementById("console-body");
-    body.scrollTop = body.scrollHeight;
+function stopRunTimers(key) {
+  const ctx = runs[key];
+  if (!ctx) return;
+  for (const t of ["pollTimer", "tickTimer", "phaseTimer", "resetTimer"]) {
+    if (ctx[t]) { clearTimeout(ctx[t]); clearInterval(ctx[t]); ctx[t] = null; }
   }
 }
 
-function updateFollowBtn() {
-  document.getElementById("follow-btn").textContent = state.follow ? "暂停滚动" : "恢复滚动";
-}
+function show(id) { const n = el(id); if (n) n.hidden = false; }
+function hide(id) { const n = el(id); if (n) n.hidden = true; }
+function setText(id, text) { const n = el(id); if (n) n.textContent = text; }
 
-/* ================= 轮询调度（页面隐藏时暂停） ================= */
+/* ================= 启动 ================= */
 route();
-setInterval(() => { if (!document.hidden) fetchStatus(); }, 5000);            // 状态 5 秒
-setInterval(() => { if (!document.hidden) fetchLogs(); }, 2000);              // 全局日志 2 秒
-setInterval(() => { if (!document.hidden) fetchJobs(); }, 5000);              // 任务列表 5 秒
-setInterval(() => { if (!document.hidden) pollConsole(); }, 1000);            // 运行中任务 1 秒
+fetchTools().then(renderCards).catch(e => toast(`加载工具列表失败：${e.message}`));
+fetchStatus();
+setInterval(() => {
+  if (!document.hidden) fetchStatus();  // 工具页也轮询，及时发现 Hub 自更新
+}, 3000);
 </script>
 </body>
 </html>

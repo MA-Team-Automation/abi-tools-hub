@@ -6,10 +6,15 @@
 """
 
 import json
+import os
+import shutil
+import subprocess
+import sys
 import threading
 import time
 import webbrowser
 from collections import deque
+from concurrent.futures import ThreadPoolExecutor
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
@@ -30,6 +35,51 @@ _log_seq = 0
 _state_lock = threading.Lock()
 _running = {}
 _refresh_running = False
+
+# 快速状态缓存：启动时后台线程并行 check_status（git fetch 较慢），
+# 就绪前 /api/status 只返回本地瞬时信息（exists/env_ready，不走网络）
+_status_lock = threading.Lock()
+_status_cache = None  # dict: tool_id -> check_status 结果；None 表示尚未就绪
+_status_checking = False
+
+# Hub 自更新状态：behind 为最近一次检查到的落后提交数；
+# updated=True 表示本次运行期间拉到了新版本（需重启生效，重启前保持 True）
+_hub_status = {"behind": None, "updated": False}
+
+# 仓库访问权限/认证失败的典型日志特征（小写匹配）：
+# GitHub 私有仓库无权限或未登录时，clone/fetch/pull 的常见报错
+_ACCESS_ERROR_PATTERNS = (
+    "repository not found",    # GitHub 私有仓库无权限（或未登录）时的 404
+    "remote: not found",       # 同上，remote 前缀形式
+    "authentication failed",   # 凭据无效/过期
+    "could not read username", # 无交互终端下询问用户名失败（未配置凭据）
+    "403",                     # HTTP 403 Forbidden
+)
+
+# 会话级权限错误标记：一旦置 True 本会话保持（语义同 hub.updated）
+_access_error = False
+
+
+def _is_access_error(text: str) -> bool:
+    """判断日志文本是否包含仓库访问权限/认证失败特征（大小写不敏感）。"""
+    lowered = text.lower()
+    return any(p in lowered for p in _ACCESS_ERROR_PATTERNS)
+
+
+def _mark_access_error(line: str) -> None:
+    """检查一行日志，命中权限特征则置起会话级 access_error 标记。"""
+    global _access_error
+    if _access_error:
+        return
+    if _is_access_error(line):
+        with _state_lock:
+            _access_error = True
+        log("警告：检测到仓库访问权限问题（可能需要申请组织权限或完成 GitHub 登录）")
+
+# 进程启动时的原始 argv，/api/restart 原地重启时原样复用
+_LAUNCH_ARGV = sys.argv[:]
+# serve() 启动后保存服务器实例，重启前先释放端口
+_server = None
 
 
 def log(message: str) -> None:
@@ -91,37 +141,129 @@ def _run_action(tool: dict, action: str, func) -> None:
 
 
 def _refresh_all_background() -> None:
-    """后台线程：自动检查更新、拉取主分支最新代码、搭建环境。"""
+    """后台线程：先检查 Hub 自更新，再并行拉取各工具最新代码、搭建环境。"""
     global _refresh_running
     with _state_lock:
         if _refresh_running:
             return
         _refresh_running = True
-    log("开始自动检查更新并搭建环境（git fetch 可能需要几分钟）...")
+    log("开始自动检查更新并搭建环境（并行执行，git fetch 可能需要几分钟）...")
     try:
+        # 先检查 Hub 自身更新（含 main 分支/干净工作区/ff-only 保护）
+        try:
+            result = core.self_update()
+            for line in result["log"].splitlines():
+                log(line)
+                _mark_access_error(line)
+            with _state_lock:
+                _hub_status["behind"] = result["behind"]
+                if result["updated"]:
+                    _hub_status["updated"] = True
+        except Exception as exc:
+            log(f"错误：Hub 自更新检查失败：{exc}")
+        # 再并行更新 5 个工具
         for line in core.refresh_all():
             log(line)
+            _mark_access_error(line)
         log("自动更新与环境检查完成。")
     except Exception as exc:
         log(f"错误：自动更新失败：{exc}")
     finally:
         with _state_lock:
             _refresh_running = False
+    # 更新/搭建完成后重新并行拉取各工具状态，让缓存反映最新结果
+    threading.Thread(target=_check_status_background, daemon=True).start()
+
+
+def _do_restart() -> None:
+    """延迟执行的原地重启：先释放端口，再用原始 argv 拉起新进程。"""
+    log("正在重启 Hub 服务...")
+    try:
+        if _server is not None:
+            _server.server_close()
+    except Exception:
+        pass
+    argv = [sys.executable, *_LAUNCH_ARGV]
+    if sys.platform == "win32":
+        # Windows 的 os.execv 不处理可执行路径中的空格
+        # （C:\Program Files\... 会在空格处截断导致新进程启动失败），
+        # 改用 Popen（正确拼接命令行并继承同一控制台）后退出当前进程，
+        # 效果等同原地重启。
+        subprocess.Popen(argv)
+        os._exit(0)
+    os.execv(sys.executable, argv)
+
+
+def _quick_status(tool: dict) -> dict:
+    """本地瞬时状态：只看文件系统（exists/env_ready），不执行 git 网络操作。"""
+    path = Path(tool["path"])
+    exists = (path / ".git").is_dir()
+    return {
+        "id": tool["id"],
+        "exists": exists,
+        "branch": None,
+        "behind": None,
+        "ahead": None,
+        "last_commit": None,
+        "env_ready": exists and (path / ".venv").is_dir(),
+        "update_available": None,
+    }
+
+
+def _check_status_background() -> None:
+    """后台线程：并行 check_status 全部工具并填充缓存（总耗时接近最慢单个 fetch）。"""
+    global _status_cache, _status_checking
+    with _status_lock:
+        if _status_checking:
+            return
+        _status_checking = True
+    try:
+        results = {}
+        with ThreadPoolExecutor(max_workers=5) as pool:
+            for status in pool.map(core.check_status, core.load_tools()):
+                results[status["id"]] = status
+        with _status_lock:
+            _status_cache = results
+        log("后台状态检查完成。")
+    except Exception as exc:
+        log(f"错误：后台状态检查失败：{exc}")
+    finally:
+        with _status_lock:
+            _status_checking = False
 
 
 def _status_payload() -> dict:
-    """组装 /api/status 响应：5 个工具的 check_status 结果 + 展示字段 + running 状态。"""
+    """组装 /api/status 响应。
+
+    缓存就绪后返回完整 check_status 结果；未就绪时返回本地瞬时信息
+    （exists/env_ready，git 字段为 None）。refreshing 表示后台状态检查
+    或全量更新是否仍在进行。
+    """
     with _state_lock:
         running = dict(_running)
         refresh_running = _refresh_running
+        hub = dict(_hub_status)
+        access_error = _access_error
+    with _status_lock:
+        cache = dict(_status_cache) if _status_cache is not None else None
+        checking = _status_checking
     tools = []
     for tool in core.load_tools():
-        status = core.check_status(tool)
+        if cache is not None and tool["id"] in cache:
+            status = dict(cache[tool["id"]])
+        else:
+            status = _quick_status(tool)
         status["display"] = tool["display"]
         status["description"] = tool["description"]
         status["running"] = running.get(tool["id"])
         tools.append(status)
-    return {"tools": tools, "refresh_running": refresh_running}
+    return {
+        "tools": tools,
+        "refresh_running": refresh_running,
+        "refreshing": refresh_running or checking,
+        "hub": hub,
+        "access_error": access_error,
+    }
 
 
 def _logs_payload(since: int) -> dict:
@@ -130,6 +272,90 @@ def _logs_payload(since: int) -> dict:
         lines = [text for seq, text in _log_lines if seq > since]
         last = _log_seq
     return {"lines": lines, "last": last}
+
+
+# /api/inspect-file 在该工具 .venv 中执行的驱动代码：
+# 用 openpyxl 只读模式列出 Sheet 名或指定 Sheet 的首行表头，结果以标记行输出 JSON
+_INSPECT_MARKER = "__INSPECT_RESULT__"
+_INSPECT_CODE = r"""
+import json
+import sys
+
+from openpyxl import load_workbook
+
+path, what = sys.argv[1], sys.argv[2]
+sheet = sys.argv[3] if len(sys.argv) > 3 else ""
+
+wb = load_workbook(path, read_only=True)
+try:
+    if what == "sheets":
+        result = list(wb.sheetnames)
+    else:
+        name = sheet or wb.sheetnames[0]
+        if name not in wb.sheetnames:
+            raise ValueError(f"Sheet 不存在：{name}")
+        row = next(wb[name].iter_rows(min_row=1, max_row=1, values_only=True), ())
+        result = [str(c).strip() for c in row if c is not None and str(c).strip()]
+    print("__INSPECT_RESULT__" + json.dumps(result, ensure_ascii=False))
+finally:
+    wb.close()
+"""
+
+
+def _inspect_file(body: dict) -> tuple:
+    """读取 Excel 文件的 Sheet 列表或首行表头（供前端动态下拉选项）。
+
+    在对应工具的 .venv 里同步执行 openpyxl（read_only 模式），超时 120 秒。
+    返回 (payload, http_status)；所有失败路径均为中文错误信息。
+    """
+    tool_id = str(body.get("tool_id") or "")
+    what = str(body.get("what") or "")
+    path_text = str(body.get("path") or "").strip().strip('"').strip("'")
+    sheet = str(body.get("sheet") or "").strip()
+
+    tool = _find_tool(tool_id)
+    if tool is None:
+        return {"ok": False, "error": f"未知工具：{tool_id}"}, 404
+    if what not in ("sheets", "columns"):
+        return {"ok": False, "error": "what 必须是 sheets 或 columns"}, 400
+    if not path_text:
+        return {"ok": False, "error": "请先填写文件路径"}, 400
+    file_path = Path(path_text)
+    if not file_path.is_file():
+        return {"ok": False, "error": f"文件不存在：{path_text}"}, 400
+    if file_path.suffix.lower() not in (".xlsx", ".xlsm"):
+        return {"ok": False, "error": "只能读取 .xlsx 格式的 Excel 文件"}, 400
+    if shutil.which("uv") is None:
+        return {"ok": False, "error": "未找到 uv，无法读取文件"}, 500
+
+    try:
+        r = subprocess.run(
+            ["uv", "run", "python", "-X", "utf8", "-c", _INSPECT_CODE,
+             str(file_path), what, sheet],
+            cwd=tool["path"],
+            capture_output=True, text=True,
+            encoding="utf-8", errors="replace",
+            timeout=120,
+        )
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "error": "读取超时（120 秒），文件可能过大或被占用"}, 500
+
+    if r.returncode != 0:
+        detail = ""
+        for line in (r.stderr or "").strip().splitlines():
+            line = line.strip()
+            if line and "Warning" not in line:
+                detail = line  # 取最后一行有效报错
+        return {"ok": False, "error": f"读取 Excel 失败：{detail or '未知错误'}"}, 400
+
+    for line in (r.stdout or "").splitlines():
+        if line.startswith(_INSPECT_MARKER):
+            try:
+                options = json.loads(line[len(_INSPECT_MARKER):])
+            except json.JSONDecodeError:
+                break
+            return {"ok": True, "options": options}, 200
+    return {"ok": False, "error": "读取 Excel 失败：未获得有效结果"}, 500
 
 
 class HubRequestHandler(BaseHTTPRequestHandler):
@@ -211,6 +437,31 @@ class HubRequestHandler(BaseHTTPRequestHandler):
             self._send_json({"ok": True, "message": "已开始全量更新与环境搭建（后台执行）"})
             return
 
+        # /api/inspect-file —— 读取 Excel 的 Sheet 列表 / 首行表头，供动态下拉选项
+        if parsed.path == "/api/inspect-file":
+            body = self._read_json_body()
+            if body is None or not isinstance(body, dict):
+                self._send_json({"ok": False, "error": "请求体必须是 JSON 对象"}, status=400)
+                return
+            payload, status = _inspect_file(body)
+            self._send_json(payload, status=status)
+            return
+
+        # /api/restart —— 原地重启 Hub 进程（有任务运行时拒绝）
+        if parsed.path == "/api/restart":
+            with _state_lock:
+                busy = _refresh_running or bool(_running)
+            running_jobs = [j for j in jobs.get_jobs() if j["status"] == "running"]
+            if busy or running_jobs:
+                self._send_json(
+                    {"ok": False, "error": "有任务正在运行，请稍后重启"}, status=409)
+                return
+            self._send_json({"ok": True, "message": "正在重启…"})
+            timer = threading.Timer(0.5, _do_restart)
+            timer.daemon = False  # 保证 0.5 秒后能执行到 execv
+            timer.start()
+            return
+
         # /api/run/<tool_id>/<action_id> —— 启动工具操作任务，返回 {"job_id": "..."}
         if len(parts) == 4 and parts[0] == "api" and parts[1] == "run":
             tool_id, action_id = parts[2], parts[3]
@@ -272,12 +523,16 @@ def serve(port: int, open_browser: bool = True, auto_refresh: bool = True) -> No
     """启动 Web 控制台。
 
     auto_refresh 为 True 时先开 daemon 线程执行 refresh_all（写日志缓冲）；
+    无论是否 auto_refresh，都会开后台线程并行检查各工具状态填充缓存；
     open_browser 为 True 时延迟 1 秒用默认浏览器打开控制台页面。
     """
+    threading.Thread(target=_check_status_background, daemon=True).start()
     if auto_refresh:
         threading.Thread(target=_refresh_all_background, daemon=True).start()
 
+    global _server
     server = ThreadingHTTPServer(("127.0.0.1", port), HubRequestHandler)
+    _server = server
     url = f"http://127.0.0.1:{port}"
     if open_browser:
         threading.Timer(1.0, webbrowser.open, args=(url,)).start()
