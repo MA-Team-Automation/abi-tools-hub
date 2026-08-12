@@ -219,6 +219,68 @@ def launch_tool(tool: dict) -> None:
     )
 
 
+# Hub 自身的主分支（自更新仅在该分支、工作区干净且可 ff 时执行）
+HUB_BRANCH = "main"
+
+
+def self_update() -> dict:
+    """检查并更新 Hub 自身（与工具更新同等级别的保护）。
+
+    fetch origin main 后，仅当当前检出分支是 main、工作区无未提交改动、
+    可 --ff-only 时才 pull；任何不满足的情况返回中文说明日志并跳过。
+    返回 {"updated": bool, "behind": int | None, "log": str}，
+    updated=True 表示拉到了新版本（需重启进程后生效）。
+    """
+    path = str(ROOT)
+    logs = []
+    behind = None
+
+    result = {"updated": False, "behind": None, "log": ""}
+
+    def _finish():
+        result["behind"] = behind
+        result["log"] = "\n".join(logs)
+        return result
+
+    r = _run_git(path, ["fetch", "origin", HUB_BRANCH])
+    if r.returncode != 0:
+        logs.append(f"[hub] 警告：git fetch 失败（可能无网络），跳过 Hub 自更新：{r.stderr.strip()}")
+        return _finish()
+
+    rb = _run_git(path, ["rev-list", "--count", f"HEAD..origin/{HUB_BRANCH}"])
+    if rb.returncode == 0:
+        behind = int(rb.stdout.strip())
+        logs.append(f"[hub] 已 fetch origin/{HUB_BRANCH}（落后 {behind} 个提交）")
+
+    # 仅 main 分支允许自更新，避免把主分支代码拉进功能分支
+    r = _run_git(path, ["rev-parse", "--abbrev-ref", "HEAD"])
+    current = r.stdout.strip() if r.returncode == 0 else ""
+    if current != HUB_BRANCH:
+        logs.append(f"[hub] 当前在 {current or '未知'} 分支，跳过 Hub 自更新（仅 {HUB_BRANCH} 分支自动更新）")
+        return _finish()
+
+    # 工作区有未提交改动时不更新，保护用户改动
+    r = _run_git(path, ["status", "--porcelain"])
+    if r.returncode == 0 and r.stdout.strip():
+        logs.append("[hub] 检测到未提交的本地改动，跳过 Hub 自更新以保护你的修改")
+        return _finish()
+
+    if behind == 0:
+        logs.append("[hub] 已是最新")
+        return _finish()
+
+    r = _run_git(path, ["pull", "--ff-only", "origin", HUB_BRANCH])
+    if r.returncode != 0:
+        logs.append(
+            f"[hub] 警告：无法 fast-forward 更新 Hub（可能存在本地提交或分叉），"
+            f"已跳过以保护你的改动：{r.stderr.strip()}"
+        )
+        return _finish()
+    result["updated"] = True
+    logs.append("[hub] 已拉取到最新版本，重启 Hub 后生效")
+    return _finish()
+
+
 def refresh_all() -> list:
     """对每个工具执行 ensure_repo、update_tool、setup_env，汇总日志行返回。
 

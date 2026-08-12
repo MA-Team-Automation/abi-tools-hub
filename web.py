@@ -6,8 +6,10 @@
 """
 
 import json
+import os
 import shutil
 import subprocess
+import sys
 import threading
 import time
 import webbrowser
@@ -39,6 +41,15 @@ _refresh_running = False
 _status_lock = threading.Lock()
 _status_cache = None  # dict: tool_id -> check_status 结果；None 表示尚未就绪
 _status_checking = False
+
+# Hub 自更新状态：behind 为最近一次检查到的落后提交数；
+# updated=True 表示本次运行期间拉到了新版本（需重启生效，重启前保持 True）
+_hub_status = {"behind": None, "updated": False}
+
+# 进程启动时的原始 argv，/api/restart 原地重启时原样复用
+_LAUNCH_ARGV = sys.argv[:]
+# serve() 启动后保存服务器实例，重启前先释放端口
+_server = None
 
 
 def log(message: str) -> None:
@@ -100,7 +111,7 @@ def _run_action(tool: dict, action: str, func) -> None:
 
 
 def _refresh_all_background() -> None:
-    """后台线程：自动检查更新、拉取主分支最新代码、搭建环境。完成后刷新状态缓存。"""
+    """后台线程：先检查 Hub 自更新，再并行拉取各工具最新代码、搭建环境。"""
     global _refresh_running
     with _state_lock:
         if _refresh_running:
@@ -108,6 +119,18 @@ def _refresh_all_background() -> None:
         _refresh_running = True
     log("开始自动检查更新并搭建环境（并行执行，git fetch 可能需要几分钟）...")
     try:
+        # 先检查 Hub 自身更新（含 main 分支/干净工作区/ff-only 保护）
+        try:
+            result = core.self_update()
+            for line in result["log"].splitlines():
+                log(line)
+            with _state_lock:
+                _hub_status["behind"] = result["behind"]
+                if result["updated"]:
+                    _hub_status["updated"] = True
+        except Exception as exc:
+            log(f"错误：Hub 自更新检查失败：{exc}")
+        # 再并行更新 5 个工具
         for line in core.refresh_all():
             log(line)
         log("自动更新与环境检查完成。")
@@ -118,6 +141,17 @@ def _refresh_all_background() -> None:
             _refresh_running = False
     # 更新/搭建完成后重新并行拉取各工具状态，让缓存反映最新结果
     threading.Thread(target=_check_status_background, daemon=True).start()
+
+
+def _do_restart() -> None:
+    """延迟执行的原地重启：先释放端口，再用原始 argv 替换当前进程。"""
+    log("正在重启 Hub 服务...")
+    try:
+        if _server is not None:
+            _server.server_close()
+    except Exception:
+        pass
+    os.execv(sys.executable, [sys.executable, *_LAUNCH_ARGV])
 
 
 def _quick_status(tool: dict) -> dict:
@@ -168,6 +202,7 @@ def _status_payload() -> dict:
     with _state_lock:
         running = dict(_running)
         refresh_running = _refresh_running
+        hub = dict(_hub_status)
     with _status_lock:
         cache = dict(_status_cache) if _status_cache is not None else None
         checking = _status_checking
@@ -185,6 +220,7 @@ def _status_payload() -> dict:
         "tools": tools,
         "refresh_running": refresh_running,
         "refreshing": refresh_running or checking,
+        "hub": hub,
     }
 
 
@@ -369,6 +405,21 @@ class HubRequestHandler(BaseHTTPRequestHandler):
             self._send_json(payload, status=status)
             return
 
+        # /api/restart —— 原地重启 Hub 进程（有任务运行时拒绝）
+        if parsed.path == "/api/restart":
+            with _state_lock:
+                busy = _refresh_running or bool(_running)
+            running_jobs = [j for j in jobs.get_jobs() if j["status"] == "running"]
+            if busy or running_jobs:
+                self._send_json(
+                    {"ok": False, "error": "有任务正在运行，请稍后重启"}, status=409)
+                return
+            self._send_json({"ok": True, "message": "正在重启…"})
+            timer = threading.Timer(0.5, _do_restart)
+            timer.daemon = False  # 保证 0.5 秒后能执行到 execv
+            timer.start()
+            return
+
         # /api/run/<tool_id>/<action_id> —— 启动工具操作任务，返回 {"job_id": "..."}
         if len(parts) == 4 and parts[0] == "api" and parts[1] == "run":
             tool_id, action_id = parts[2], parts[3]
@@ -437,7 +488,9 @@ def serve(port: int, open_browser: bool = True, auto_refresh: bool = True) -> No
     if auto_refresh:
         threading.Thread(target=_refresh_all_background, daemon=True).start()
 
+    global _server
     server = ThreadingHTTPServer(("127.0.0.1", port), HubRequestHandler)
+    _server = server
     url = f"http://127.0.0.1:{port}"
     if open_browser:
         threading.Timer(1.0, webbrowser.open, args=(url,)).start()
