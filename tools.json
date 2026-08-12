@@ -15,7 +15,7 @@
           "label": "提取 CreativeName 数据",
           "description": "从 Plan_###lookup 超级隐藏 Sheet 中提取 CreativeName 列，输出到新 Excel 文件",
           "inputs": [
-            {"key": "file", "label": "MediaTools Import Template 文件路径", "type": "path", "required": true, "default": "", "placeholder": "拖入或粘贴 Excel 文件路径"}
+            {"key": "file", "label": "MediaTools Import Template 文件路径", "type": "path", "required": true, "default": "", "placeholder": "请粘贴文件路径"}
           ],
           "command": ["uv", "run", "python", "-X", "utf8", "-c", "import sys\nfrom pathlib import Path\nimport extract_creative_names\nextract_creative_names.run(Path(sys.argv[1]))", "{file}"]
         },
@@ -24,7 +24,7 @@
           "label": "取消所有超级隐藏 Sheet",
           "description": "将 Excel 中所有 very hidden 的 Sheet 恢复为可见，输出 <原名>_unhidden 文件",
           "inputs": [
-            {"key": "file", "label": "Excel 文件路径", "type": "path", "required": true, "default": "", "placeholder": "拖入或粘贴 Excel 文件路径"}
+            {"key": "file", "label": "Excel 文件路径", "type": "path", "required": true, "default": "", "placeholder": "请粘贴文件路径"}
           ],
           "command": ["uv", "run", "python", "-X", "utf8", "-c", "import sys\nfrom pathlib import Path\nimport unhide_sheets\nunhide_sheets.run(Path(sys.argv[1]))", "{file}"]
         }
@@ -45,8 +45,8 @@
           "label": "处理补充信息并填充模板",
           "description": "读取补充信息表，自动填充 MediaTools 模板并生成缺失信息报告",
           "inputs": [
-            {"key": "supp", "label": "补充信息表路径", "type": "path", "required": true, "default": "", "placeholder": "拖入或粘贴补充信息 Excel 文件路径"},
-            {"key": "template", "label": "模板文件路径", "type": "path", "required": true, "default": "", "placeholder": "拖入或粘贴 MediaTools 模板文件路径"},
+            {"key": "supp", "label": "补充信息表路径", "type": "path", "required": true, "default": "", "placeholder": "请粘贴文件路径"},
+            {"key": "template", "label": "模板文件路径", "type": "path", "required": true, "default": "", "placeholder": "请粘贴文件路径"},
             {"key": "start_row", "label": "起始行号", "type": "text", "required": false, "default": "500", "placeholder": "默认 500"}
           ],
           "command": ["uv", "run", "python", "MediaTools Generator.py", "--supp", "{supp}", "--template", "{template}", "--start-row", "{start_row}"]
@@ -56,7 +56,7 @@
           "label": "独立校验工具",
           "description": "校验 Excel 文件字段完整性，输出校验报告",
           "inputs": [
-            {"key": "file", "label": "要校验的 Excel 文件路径", "type": "path", "required": true, "default": "", "placeholder": "拖入或粘贴 Excel 文件路径"}
+            {"key": "file", "label": "要校验的 Excel 文件路径", "type": "path", "required": true, "default": "", "placeholder": "请粘贴文件路径"}
           ],
           "command": ["uv", "run", "python", "MediaTools Generator.py", "--check", "{file}"]
         },
@@ -156,7 +156,7 @@
           "label": "查看文件 Sheet 列表",
           "description": "列出 Excel 文件中的所有 Sheet 名称（只读，不修改文件）",
           "inputs": [
-            {"key": "file", "label": "Excel 文件路径", "type": "path", "required": true, "default": "", "placeholder": "拖入或粘贴 Excel 文件路径"}
+            {"key": "file", "label": "Excel 文件路径", "type": "path", "required": true, "default": "", "placeholder": "请粘贴文件路径"}
           ],
           "command": ["uv", "run", "python", "Spillover Tool.py", "{file}", "--list-sheets"]
         },
@@ -165,7 +165,7 @@
           "label": "查看文件列名列表",
           "description": "列出指定 Sheet 中的列名（只读，不修改文件）",
           "inputs": [
-            {"key": "file", "label": "Excel 文件路径", "type": "path", "required": true, "default": "", "placeholder": "拖入或粘贴 Excel 文件路径"},
+            {"key": "file", "label": "Excel 文件路径", "type": "path", "required": true, "default": "", "placeholder": "请粘贴文件路径"},
             {"key": "sheet", "label": "Sheet 名（选填）", "type": "text", "required": false, "default": "", "placeholder": "留空使用第一个 Sheet"}
           ],
           "command": ["uv", "run", "python", "Spillover Tool.py", "{file}", "--list-columns", {"args": ["--sheet", "{sheet}"], "omit_if_empty": true}]
