@@ -7,6 +7,7 @@
 <style>
   :root {
     --accent: #4f46e5;
+    --accent-dark: #4338ca;
     --accent-soft: #eef2ff;
     --bg: #f5f6f8;
     --card: #ffffff;
@@ -14,10 +15,14 @@
     --muted: #6b7280;
     --border: #e5e7eb;
     --green: #16a34a;
+    --green-soft: #f0fdf4;
+    --red: #dc2626;
+    --red-soft: #fef2f2;
     --gray: #9ca3af;
     --amber-bg: #fffbeb;
     --amber-text: #b45309;
     --radius: 12px;
+    --mono: "Cascadia Mono", Consolas, "Courier New", monospace;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
@@ -28,6 +33,7 @@
     line-height: 1.6;
   }
   .container { max-width: 1120px; margin: 0 auto; padding: 32px 24px 48px; }
+  [hidden] { display: none !important; }
 
   /* 顶部 */
   header {
@@ -45,9 +51,11 @@
   }
   .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--gray); flex: none; }
   .dot.green { background: var(--green); }
+  .dot.red { background: var(--red); }
   .dot.busy { background: var(--accent); animation: pulse 1s ease-in-out infinite; }
   @keyframes pulse { 50% { opacity: 0.35; } }
 
+  /* 按钮 */
   .btn {
     border: 1px solid var(--border); background: var(--card); color: var(--text);
     border-radius: 8px; padding: 8px 16px; font-size: 14px; cursor: pointer;
@@ -56,16 +64,34 @@
   }
   .btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
   .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
-  .btn.primary:hover:not(:disabled) { background: #4338ca; color: #fff; }
+  .btn.primary:hover:not(:disabled) { background: var(--accent-dark); color: #fff; }
   .btn:disabled { opacity: 0.5; cursor: not-allowed; }
   .btn.sm { padding: 5px 12px; font-size: 13px; }
-  .btn .spinner {
+  .btn.text {
+    border: none; background: none; color: var(--muted);
+    padding: 5px 4px; font-size: 13px; text-decoration: underline;
+    text-underline-offset: 3px; text-decoration-color: var(--border);
+  }
+  .btn.text:hover:not(:disabled) { color: var(--accent); text-decoration-color: var(--accent); }
+  .spinner {
     display: inline-block; width: 11px; height: 11px; margin-right: 6px;
     border: 2px solid currentColor; border-top-color: transparent;
-    border-radius: 50%; vertical-align: -1px;
+    border-radius: 50%; vertical-align: -1px; flex: none;
     animation: spin 0.7s linear infinite;
   }
   @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* 徽标 */
+  .badge {
+    display: inline-flex; align-items: center; gap: 5px;
+    font-size: 12px; line-height: 1;
+    border-radius: 999px; padding: 4px 10px;
+    background: var(--accent-soft); color: var(--accent); font-weight: 600;
+  }
+  .badge.warn { background: var(--amber-bg); color: var(--amber-text); }
+  .badge.plain { background: #f3f4f6; color: var(--muted); font-weight: 500; }
+  .badge.ok { background: var(--green-soft); color: var(--green); }
+  .badge.err { background: var(--red-soft); color: var(--red); }
 
   /* 工具卡片 */
   .grid {
@@ -79,6 +105,8 @@
     box-shadow: 0 1px 3px rgba(16, 24, 40, 0.06);
     display: flex; flex-direction: column; gap: 10px;
   }
+  .card.clickable { cursor: pointer; transition: border-color 0.15s, box-shadow 0.15s; }
+  .card.clickable:hover { border-color: var(--accent); box-shadow: 0 4px 12px rgba(79, 70, 229, 0.12); }
   .card-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
   .card-title { font-size: 16px; font-weight: 600; }
   .card-desc { font-size: 13px; color: var(--muted); min-height: 2.6em; }
@@ -88,92 +116,299 @@
     font-size: 12px; color: var(--muted);
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
-  .badge {
-    display: inline-block; font-size: 12px; line-height: 1;
-    border-radius: 999px; padding: 4px 10px;
-    background: var(--accent-soft); color: var(--accent); font-weight: 600;
-  }
-  .badge.warn { background: var(--amber-bg); color: var(--amber-text); }
-  .badge.plain { background: #f3f4f6; color: var(--muted); font-weight: 500; }
   .env { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); }
-  .card-actions { display: flex; gap: 8px; margin-top: auto; padding-top: 6px; }
-  .card-actions .btn { flex: 1; }
+  .card-actions { display: flex; gap: 8px; margin-top: auto; padding-top: 6px; align-items: center; }
+  .card-actions .btn:not(.text) { flex: 1; }
 
-  /* 日志面板 */
+  /* 全局日志 / 输出控制台 */
   .log-panel {
     background: #111827; border-radius: var(--radius);
     box-shadow: 0 1px 3px rgba(16, 24, 40, 0.2);
     overflow: hidden;
   }
   .log-head {
-    display: flex; align-items: center; justify-content: space-between;
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
     padding: 10px 16px; border-bottom: 1px solid #1f2937;
     color: #9ca3af; font-size: 13px;
   }
+  .log-head .head-left { display: flex; align-items: center; gap: 10px; min-width: 0; }
+  .log-head .head-title { flex: none; }
   .log-body {
     height: 240px; overflow-y: auto; padding: 12px 16px;
-    font-family: "Cascadia Mono", Consolas, "Courier New", monospace;
+    font-family: var(--mono);
     font-size: 12.5px; line-height: 1.7; color: #d1d5db;
     white-space: pre-wrap; word-break: break-all;
   }
   .log-body .empty { color: #4b5563; }
+  .console-panel .log-body { height: 320px; }
+  .console-toggle {
+    border: 1px solid #374151; background: none; color: #9ca3af;
+    border-radius: 6px; padding: 3px 10px; font-size: 12px; cursor: pointer;
+    font-family: inherit; flex: none;
+  }
+  .console-toggle:hover { border-color: #6b7280; color: #d1d5db; }
+
+  /* 错误提示条 */
+  .toast {
+    position: fixed; top: 18px; left: 50%; transform: translateX(-50%);
+    z-index: 100; max-width: min(640px, calc(100vw - 48px));
+    background: var(--red-soft); color: var(--red);
+    border: 1px solid #fecaca; border-radius: 10px;
+    padding: 10px 18px; font-size: 14px;
+    box-shadow: 0 8px 24px rgba(220, 38, 38, 0.15);
+  }
+
+  /* 工作台 */
+  .back-link {
+    display: inline-flex; align-items: center; gap: 6px;
+    color: var(--muted); text-decoration: none; font-size: 14px;
+    margin-bottom: 14px;
+  }
+  .back-link:hover { color: var(--accent); }
+  .workbench {
+    display: grid; gap: 18px;
+    grid-template-columns: minmax(0, 1fr) 300px;
+    margin-bottom: 18px;
+  }
+  @media (max-width: 900px) {
+    .workbench { grid-template-columns: 1fr; }
+  }
+  .actions-col { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
+  .action-card {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 20px;
+    box-shadow: 0 1px 3px rgba(16, 24, 40, 0.06);
+    display: flex; flex-direction: column; gap: 12px;
+  }
+  .action-title { font-size: 15px; font-weight: 600; display: flex; align-items: center; gap: 10px; }
+  .action-desc { font-size: 13px; color: var(--muted); }
+  .form-grid { display: flex; flex-direction: column; gap: 12px; }
+  .field label {
+    display: block; font-size: 13px; color: var(--muted); margin-bottom: 4px;
+  }
+  .field label .req { color: var(--red); margin-left: 2px; }
+  .field input, .field select {
+    width: 100%; border: 1px solid var(--border); border-radius: 8px;
+    padding: 8px 12px; font-size: 13.5px; font-family: inherit;
+    background: #fff; color: var(--text);
+    transition: border-color 0.15s, box-shadow 0.15s;
+  }
+  .field input:focus, .field select:focus {
+    outline: none; border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-soft);
+  }
+  .field input.path { font-family: var(--mono); font-size: 12.5px; }
+  .action-footer { display: flex; align-items: center; gap: 12px; }
+
+  /* 最近任务 */
+  .jobs-panel {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: 0 1px 3px rgba(16, 24, 40, 0.06);
+    display: flex; flex-direction: column; overflow: hidden;
+    max-height: 560px;
+  }
+  .jobs-head {
+    padding: 12px 16px; border-bottom: 1px solid var(--border);
+    font-size: 14px; font-weight: 600;
+  }
+  .jobs-list { overflow-y: auto; padding: 6px; }
+  .job-item {
+    display: block; width: 100%; text-align: left;
+    border: none; background: none; cursor: pointer; font-family: inherit;
+    border-radius: 8px; padding: 9px 10px;
+    display: flex; flex-direction: column; gap: 4px;
+  }
+  .job-item:hover { background: #f3f4f6; }
+  .job-item.active { background: var(--accent-soft); }
+  .job-item .job-top {
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    font-size: 13px; font-weight: 500; color: var(--text);
+  }
+  .job-item .job-time { font-size: 12px; color: var(--gray); }
+  .jobs-empty { padding: 18px 16px; font-size: 13px; color: var(--gray); }
 </style>
 </head>
 <body>
+<div id="toast" class="toast" hidden></div>
+
 <div class="container">
-  <header>
-    <div class="title-group">
-      <h1>ABI 工具箱</h1>
-      <p class="subtitle">ABI 工具集统一控制台：代码更新、环境搭建与启动管理</p>
+  <!-- ========== 视图一：仪表盘 ========== -->
+  <div id="view-dashboard">
+    <header>
+      <div class="title-group">
+        <h1>ABI 工具箱</h1>
+        <p class="subtitle">ABI 工具集统一控制台：代码更新、环境搭建与在线使用</p>
+      </div>
+      <span class="overall"><span class="dot" id="overall-dot"></span><span id="overall-text">加载中…</span></span>
+      <button class="btn primary" id="refresh-all-btn" onclick="refreshAll()">全部更新并搭建环境</button>
+    </header>
+
+    <main class="grid" id="grid"></main>
+
+    <section class="log-panel">
+      <div class="log-head">
+        <span class="head-title">运行日志</span>
+        <span id="log-count"></span>
+      </div>
+      <div class="log-body" id="log-body"><div class="empty">暂无日志</div></div>
+    </section>
+  </div>
+
+  <!-- ========== 视图二：工具工作台 ========== -->
+  <div id="view-tool" hidden>
+    <a class="back-link" href="#/">&larr; 返回总览</a>
+    <header>
+      <div class="title-group">
+        <h1 id="tool-name">…</h1>
+        <p class="subtitle" id="tool-desc"></p>
+      </div>
+      <span class="overall"><span class="dot" id="tool-env-dot"></span><span id="tool-env-text">加载中…</span></span>
+      <button class="btn text" id="tool-launch-btn" onclick="launchTool()">在终端中打开</button>
+    </header>
+    <div class="meta" id="tool-branch-meta" style="margin:-14px 0 20px;"></div>
+
+    <div class="workbench">
+      <div class="actions-col" id="actions-col"></div>
+      <aside class="jobs-panel">
+        <div class="jobs-head">最近任务</div>
+        <div class="jobs-list" id="jobs-list"><div class="jobs-empty">暂无任务</div></div>
+      </aside>
     </div>
-    <span class="overall"><span class="dot" id="overall-dot"></span><span id="overall-text">加载中…</span></span>
-    <button class="btn primary" id="refresh-all-btn" onclick="refreshAll()">全部更新并搭建环境</button>
-  </header>
 
-  <main class="grid" id="grid"></main>
-
-  <section class="log-panel">
-    <div class="log-head"><span>运行日志</span><span id="log-count"></span></div>
-    <div class="log-body" id="log-body"><div class="empty">暂无日志</div></div>
-  </section>
+    <section class="log-panel console-panel">
+      <div class="log-head">
+        <div class="head-left">
+          <span class="head-title">输出控制台</span>
+          <span id="console-job-info"></span>
+        </div>
+        <button class="console-toggle" id="follow-btn" onclick="toggleFollow()">暂停滚动</button>
+      </div>
+      <div class="log-body" id="console-body"><div class="empty">运行一个操作，或点击右侧历史任务查看输出</div></div>
+    </section>
+  </div>
 </div>
 
 <script>
-let lastLogSeq = 0;
-let latestStatus = null;
+"use strict";
 
+/* ================= 全局状态 ================= */
+const state = {
+  tools: null,          // /api/tools 缓存（含 actions 定义）
+  status: null,         // /api/status 缓存
+  currentTool: null,    // 当前工作台工具 id（仪表盘时为 null）
+  lastLogSeq: 0,        // 全局日志增量序号
+  jobs: [],             // /api/jobs 缓存
+  activeRuns: {},       // "toolId/actionId" -> jobId，运行中禁用对应按钮
+  consoleJob: null,     // 控制台当前展示的任务 id
+  consoleSince: 0,      // 控制台增量序号
+  consoleRunning: false,
+  follow: true,         // 控制台自动滚底
+};
+
+/* ================= 工具函数 ================= */
 function esc(s) {
   return String(s ?? "").replace(/[&<>"']/g, c =>
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
-async function post(url) {
-  try {
-    const r = await fetch(url, { method: "POST" });
-    return await r.json();
-  } catch (e) {
-    return { ok: false, error: String(e) };
-  }
+let toastTimer = null;
+function toast(message) {
+  const el = document.getElementById("toast");
+  el.textContent = message;
+  el.hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { el.hidden = true; }, 4500);
 }
 
+async function apiGet(url) {
+  const r = await fetch(url);
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data.error || `请求失败（HTTP ${r.status}）`);
+  return data;
+}
+
+async function apiPost(url, body) {
+  const r = await fetch(url, {
+    method: "POST",
+    headers: body ? { "Content-Type": "application/json" } : {},
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data.error || `操作失败（HTTP ${r.status}）`);
+  return data;
+}
+
+// 剥离 ANSI 转义序列；\r 回车覆盖行只保留最后一段
+function cleanLine(text) {
+  let s = String(text).replace(/\x1b\[[0-9;]*[A-Za-z]/g, "");
+  if (s.includes("\r")) s = s.slice(s.lastIndexOf("\r") + 1);
+  return s;
+}
+
+// 清理拖拽/粘贴进来的路径：去空白、去 & 前缀、去首尾引号
+function cleanPath(v) {
+  v = String(v).trim();
+  if (v.startsWith("&")) v = v.slice(1).trim();
+  return v.replace(/^["']+|["']+$/g, "").trim();
+}
+
+function statusBadge(status, exitCode) {
+  if (status === "running") return `<span class="badge"><span class="spinner"></span>运行中</span>`;
+  if (status === "done") return `<span class="badge ok">成功 · 退出码 ${exitCode}</span>`;
+  return `<span class="badge err">失败 · 退出码 ${exitCode ?? "?"}</span>`;
+}
+
+/* ================= 路由 ================= */
+function route() {
+  const m = (location.hash || "#/").match(/^#\/tool\/([\w-]+)$/);
+  if (m) showToolView(m[1]); else showDashboard();
+}
+window.addEventListener("hashchange", route);
+
+function showDashboard() {
+  state.currentTool = null;
+  state.consoleJob = null;
+  state.consoleRunning = false;
+  document.getElementById("view-tool").hidden = true;
+  document.getElementById("view-dashboard").hidden = false;
+  fetchStatus();
+  fetchLogs(true);
+}
+
+function showToolView(toolId) {
+  state.currentTool = toolId;
+  state.consoleJob = null;
+  state.consoleSince = 0;
+  state.consoleRunning = false;
+  state.follow = true;
+  updateFollowBtn();
+  document.getElementById("view-dashboard").hidden = true;
+  document.getElementById("view-tool").hidden = false;
+  document.getElementById("console-body").innerHTML =
+    `<div class="empty">运行一个操作，或点击右侧历史任务查看输出</div>`;
+  document.getElementById("console-job-info").textContent = "";
+  renderToolView();
+  fetchTools().then(renderToolView).catch(e => toast(`加载工具定义失败：${e.message}`));
+  fetchStatus();
+  fetchJobs();
+}
+
+/* ================= 仪表盘 ================= */
 function renderCards(data) {
   const grid = document.getElementById("grid");
   grid.innerHTML = data.tools.map(t => {
     const running = t.running;
-    const busy = running ? `<span class="spinner"></span>` : "";
+    const busy = `<span class="spinner"></span>`;
     const disabled = running ? "disabled" : "";
 
     let badges = "";
     if (!t.exists) {
       badges = `<span class="badge warn">未克隆</span>`;
     } else {
-      if (t.behind === null) {
-        badges = `<span class="badge plain">远程未知</span>`;
-      } else if (t.behind > 0) {
-        badges = `<span class="badge warn">可更新 · 落后 ${t.behind}</span>`;
-      } else {
-        badges = `<span class="badge">已是最新</span>`;
-      }
+      if (t.behind === null) badges = `<span class="badge plain">远程未知</span>`;
+      else if (t.behind > 0) badges = `<span class="badge warn">可更新 · 落后 ${t.behind}</span>`;
+      else badges = `<span class="badge">已是最新</span>`;
       if (t.ahead > 0) badges += ` <span class="badge plain">超前 ${t.ahead}</span>`;
     }
 
@@ -184,7 +419,7 @@ function renderCards(data) {
     const commit = t.last_commit ? esc(t.last_commit) : "暂无提交信息";
 
     return `
-    <div class="card">
+    <div class="card clickable" onclick="cardClick(event, '${t.id}')">
       <div class="card-head">
         <span class="card-title">${esc(t.display)}</span>
         ${env}
@@ -193,9 +428,9 @@ function renderCards(data) {
       <div class="meta"><span class="label">分支</span>${esc(branch)} ${badges}</div>
       <div class="commit" title="${commit}">${commit}</div>
       <div class="card-actions">
-        <button class="btn sm" ${disabled} onclick="doAction('launch','${t.id}')">${busy && running === "launch" ? busy : ""}启动</button>
         <button class="btn sm" ${disabled} onclick="doAction('update','${t.id}')">${running === "update" ? busy : ""}更新</button>
         <button class="btn sm" ${disabled} onclick="doAction('setup','${t.id}')">${running === "setup" ? busy : ""}搭建环境</button>
+        <button class="btn text" onclick="doAction('launch','${t.id}')">在终端中打开</button>
       </div>
     </div>`;
   }).join("");
@@ -224,51 +459,305 @@ function renderCards(data) {
     : "全部更新并搭建环境";
 }
 
+function cardClick(event, toolId) {
+  if (event.target.closest("button")) return;  // 点击按钮不跳转
+  location.hash = `#/tool/${toolId}`;
+}
+
 async function fetchStatus() {
   try {
-    const r = await fetch("/api/status");
-    latestStatus = await r.json();
-    renderCards(latestStatus);
+    state.status = await apiGet("/api/status");
+    if (state.currentTool) renderToolStatus();
+    else renderCards(state.status);
   } catch (e) { /* 下一轮再试 */ }
 }
 
-async function fetchLogs() {
+async function fetchLogs(force) {
+  if (state.currentTool) return;  // 工作台视图不拉全局日志
   try {
-    const r = await fetch(`/api/logs?since=${lastLogSeq}`);
-    const data = await r.json();
+    if (force) state.lastLogSeq = state.lastLogSeq || 0;
+    const data = await apiGet(`/api/logs?since=${state.lastLogSeq}`);
     const body = document.getElementById("log-body");
     if (data.lines.length > 0) {
       const empty = body.querySelector(".empty");
       if (empty) empty.remove();
       for (const line of data.lines) {
         const div = document.createElement("div");
-        div.textContent = line;
+        div.textContent = cleanLine(line);
         body.appendChild(div);
       }
-      body.scrollTop = body.scrollHeight;  // 自动滚动到底
+      body.scrollTop = body.scrollHeight;
     }
-    lastLogSeq = data.last;
+    state.lastLogSeq = data.last;
     document.getElementById("log-count").textContent = `已显示至 #${data.last}`;
   } catch (e) { /* 下一轮再试 */ }
 }
 
 async function doAction(action, id) {
-  const res = await post(`/api/${action}/${id}`);
-  if (!res.ok) alert(res.error || "操作失败");
+  try {
+    const res = await apiPost(`/api/${action}/${id}`);
+    if (res.ok === false) throw new Error(res.error || "操作失败");
+    if (res.message) toast(res.message);
+  } catch (e) {
+    toast(e.message);
+  }
   fetchStatus();
-  fetchLogs();
 }
 
 async function refreshAll() {
-  const res = await post("/api/refresh-all");
-  if (!res.ok) alert(res.error || "操作失败");
+  try {
+    await apiPost("/api/refresh-all");
+  } catch (e) {
+    toast(`全量更新启动失败：${e.message}`);
+  }
   fetchStatus();
 }
 
-fetchStatus();
-fetchLogs();
-setInterval(fetchStatus, 5000);  // 状态每 5 秒轮询
-setInterval(fetchLogs, 2000);    // 日志每 2 秒轮询
+/* ================= 工具工作台 ================= */
+async function fetchTools() {
+  if (!state.tools) state.tools = await apiGet("/api/tools");
+}
+
+function currentToolDef() {
+  if (!state.tools || !state.currentTool) return null;
+  return state.tools.tools.find(t => t.id === state.currentTool) || null;
+}
+
+function renderToolView() {
+  const tool = currentToolDef();
+  if (!tool) return;
+  document.getElementById("tool-name").textContent = tool.display;
+  document.getElementById("tool-desc").textContent = tool.description;
+  document.title = `${tool.display} · ABI 工具箱`;
+  renderToolStatus();
+  renderActions(tool);
+}
+
+function renderToolStatus() {
+  const tool = currentToolDef();
+  if (!tool) return;
+  const st = state.status && state.status.tools.find(t => t.id === tool.id);
+
+  const envDot = document.getElementById("tool-env-dot");
+  const envText = document.getElementById("tool-env-text");
+  const branchMeta = document.getElementById("tool-branch-meta");
+  if (!st) {
+    envDot.className = "dot";
+    envText.textContent = "状态未知";
+    branchMeta.innerHTML = `<span class="label">分支</span>${esc(tool.branch || "—")}`;
+    return;
+  }
+  envDot.className = st.env_ready ? "dot green" : "dot";
+  envText.textContent = st.env_ready ? "环境就绪" : "环境未搭建";
+
+  let badges = "";
+  if (!st.exists) badges = `<span class="badge warn">未克隆</span>`;
+  else if (st.behind === null) badges = `<span class="badge plain">远程未知</span>`;
+  else if (st.behind > 0) badges = `<span class="badge warn">落后 ${st.behind}</span>`;
+  else badges = `<span class="badge">已是最新</span>`;
+  if (st.exists && st.ahead > 0) badges += ` <span class="badge plain">超前 ${st.ahead}</span>`;
+  branchMeta.innerHTML =
+    `<span class="label">分支</span>${esc(st.branch || tool.branch || "—")} ${badges}` +
+    (st.last_commit ? ` &nbsp;<span class="commit" title="${esc(st.last_commit)}">${esc(st.last_commit)}</span>` : "");
+}
+
+function renderActions(tool) {
+  const col = document.getElementById("actions-col");
+  if (!tool.actions || tool.actions.length === 0) {
+    col.innerHTML = `<div class="action-card"><p class="action-desc">该工具暂未配置可在线运行的操作。</p></div>`;
+    return;
+  }
+  col.innerHTML = tool.actions.map(action => {
+    const runKey = `${tool.id}/${action.id}`;
+    const running = Boolean(state.activeRuns[runKey]);
+    const fields = (action.inputs || []).map(spec => {
+      const req = spec.required ? `<span class="req">*</span>` : "";
+      const required = spec.required ? "required" : "";
+      const value = esc(spec.default || "");
+      const placeholder = esc(spec.placeholder || "");
+      let control;
+      if (Array.isArray(spec.options) && spec.options.length > 0) {
+        const opts = spec.options.map(o => {
+          const v = esc(typeof o === "object" ? o.value : o);
+          const label = esc(typeof o === "object" ? (o.label ?? o.value) : o);
+          const sel = String(v) === String(spec.default || "") ? "selected" : "";
+          return `<option value="${v}" ${sel}>${label}</option>`;
+        }).join("");
+        control = `<select name="${esc(spec.key)}" ${required}>${opts}</select>`;
+      } else if (spec.type === "path") {
+        control = `<input class="path" type="text" name="${esc(spec.key)}" value="${value}"
+          placeholder="${placeholder || "粘贴或拖入文件路径"}" ${required} spellcheck="false">`;
+      } else {
+        control = `<input type="text" name="${esc(spec.key)}" value="${value}"
+          placeholder="${placeholder}" ${required} spellcheck="false">`;
+      }
+      return `<div class="field"><label>${esc(spec.label || spec.key)}${req}</label>${control}</div>`;
+    }).join("");
+
+    return `
+    <div class="action-card">
+      <div class="action-title">${esc(action.label)}</div>
+      <p class="action-desc">${esc(action.description || "")}</p>
+      <form onsubmit="return runAction(event, '${tool.id}', '${action.id}')">
+        <div class="form-grid">${fields}</div>
+        <div class="action-footer" style="margin-top:14px;">
+          <button class="btn primary sm" type="submit" id="run-btn-${esc(action.id)}" ${running ? "disabled" : ""}>
+            ${running ? `<span class="spinner"></span>运行中…` : "运行"}
+          </button>
+        </div>
+      </form>
+    </div>`;
+  }).join("");
+}
+
+async function runAction(event, toolId, actionId) {
+  event.preventDefault();
+  const tool = currentToolDef();
+  const action = tool && tool.actions.find(a => a.id === actionId);
+  if (!action) return false;
+
+  const form = event.target;
+  if (!form.checkValidity()) { form.reportValidity(); return false; }
+
+  const params = {};
+  for (const spec of action.inputs || []) {
+    const el = form.elements[spec.key];
+    if (!el) continue;
+    params[spec.key] = spec.type === "path" ? cleanPath(el.value) : el.value.trim();
+  }
+
+  const runKey = `${toolId}/${actionId}`;
+  try {
+    const res = await apiPost(`/api/run/${toolId}/${actionId}`, { params });
+    state.activeRuns[runKey] = res.job_id;
+    openJob(res.job_id);
+    fetchJobs();
+    renderActions(tool);  // 禁用运行按钮
+  } catch (e) {
+    toast(`启动失败：${e.message}`);
+  }
+  return false;
+}
+
+async function launchTool() {
+  if (!state.currentTool) return;
+  try {
+    await apiPost(`/api/launch/${state.currentTool}`);
+  } catch (e) {
+    toast(`启动失败：${e.message}`);
+  }
+}
+
+/* ================= 任务列表与控制台 ================= */
+async function fetchJobs() {
+  if (!state.currentTool) return;
+  try {
+    const data = await apiGet("/api/jobs");
+    state.jobs = data.jobs || [];
+    // 已结束的任务从 activeRuns 中移除并恢复按钮
+    let changed = false;
+    for (const [key, jobId] of Object.entries(state.activeRuns)) {
+      const job = state.jobs.find(j => j.id === jobId);
+      if (job && job.status !== "running") {
+        delete state.activeRuns[key];
+        changed = true;
+      }
+    }
+    renderJobsList();
+    if (changed) {
+      const tool = currentToolDef();
+      if (tool) renderActions(tool);
+    }
+  } catch (e) { /* 下一轮再试 */ }
+}
+
+function renderJobsList() {
+  const list = document.getElementById("jobs-list");
+  const jobs = state.jobs.filter(j => j.tool_id === state.currentTool);
+  if (jobs.length === 0) {
+    list.innerHTML = `<div class="jobs-empty">暂无任务</div>`;
+    return;
+  }
+  list.innerHTML = jobs.map(j => {
+    const active = j.id === state.consoleJob ? "active" : "";
+    return `
+    <button class="job-item ${active}" onclick="openJob('${j.id}')">
+      <span class="job-top"><span>${esc(j.action_label)}</span>${statusBadge(j.status, j.exit_code)}</span>
+      <span class="job-time">${esc(j.started_at)} · ${esc(j.id)}</span>
+    </button>`;
+  }).join("");
+}
+
+// 打开一个任务到控制台：since=0 拉全量，运行中的继续 1 秒增量轮询
+async function openJob(jobId) {
+  state.consoleJob = jobId;
+  state.consoleSince = 0;
+  state.follow = true;
+  updateFollowBtn();
+  const body = document.getElementById("console-body");
+  body.innerHTML = `<div class="empty">加载中…</div>`;
+  renderJobsList();
+  try {
+    const data = await apiGet(`/api/job/${jobId}?since=0`);
+    body.innerHTML = "";
+    appendConsoleLines(data.lines);
+    updateConsoleStatus(data);
+  } catch (e) {
+    body.innerHTML = `<div class="empty">${esc(e.message)}</div>`;
+    document.getElementById("console-job-info").textContent = "";
+    state.consoleRunning = false;
+  }
+}
+
+async function pollConsole() {
+  if (!state.consoleJob || !state.consoleRunning) return;
+  try {
+    const data = await apiGet(`/api/job/${state.consoleJob}?since=${state.consoleSince}`);
+    appendConsoleLines(data.lines);
+    updateConsoleStatus(data);
+  } catch (e) { /* 下一轮再试 */ }
+}
+
+function appendConsoleLines(lines) {
+  if (!lines || lines.length === 0) return;
+  const body = document.getElementById("console-body");
+  const empty = body.querySelector(".empty");
+  if (empty) empty.remove();
+  for (const line of lines) {
+    const div = document.createElement("div");
+    div.textContent = cleanLine(line.text);
+    body.appendChild(div);
+    if (line.seq > state.consoleSince) state.consoleSince = line.seq;
+  }
+  if (state.follow) body.scrollTop = body.scrollHeight;
+}
+
+function updateConsoleStatus(data) {
+  document.getElementById("console-job-info").innerHTML =
+    `<span style="font-family:var(--mono);">${esc(state.consoleJob)}</span> ${statusBadge(data.status, data.exit_code)}`;
+  state.consoleRunning = data.status === "running";
+  if (!state.consoleRunning) fetchJobs();  // 落定后刷新任务列表与按钮状态
+}
+
+function toggleFollow() {
+  state.follow = !state.follow;
+  updateFollowBtn();
+  if (state.follow) {
+    const body = document.getElementById("console-body");
+    body.scrollTop = body.scrollHeight;
+  }
+}
+
+function updateFollowBtn() {
+  document.getElementById("follow-btn").textContent = state.follow ? "暂停滚动" : "恢复滚动";
+}
+
+/* ================= 轮询调度（页面隐藏时暂停） ================= */
+route();
+setInterval(() => { if (!document.hidden) fetchStatus(); }, 5000);            // 状态 5 秒
+setInterval(() => { if (!document.hidden) fetchLogs(); }, 2000);              // 全局日志 2 秒
+setInterval(() => { if (!document.hidden) fetchJobs(); }, 5000);              // 任务列表 5 秒
+setInterval(() => { if (!document.hidden) pollConsole(); }, 1000);            // 运行中任务 1 秒
 </script>
 </body>
 </html>
