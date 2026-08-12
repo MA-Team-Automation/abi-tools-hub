@@ -60,6 +60,38 @@
     animation: fadeIn 0.25s ease;
   }
 
+  /* ---------- Hub 更新提示（底部居中浮起） ---------- */
+  .hub-toast {
+    position: fixed; bottom: 26px; left: 50%; transform: translateX(-50%);
+    z-index: 100; display: flex; align-items: center; gap: 14px;
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 14px; padding: 11px 12px 11px 20px;
+    font-size: 13.5px; color: var(--text);
+    box-shadow: 0 18px 48px rgba(16, 24, 40, 0.16);
+    animation: hubRise 0.4s ease;
+    max-width: calc(100vw - 48px);
+  }
+  @keyframes hubRise {
+    from { opacity: 0; transform: translate(-50%, 12px); }
+    to { opacity: 1; transform: translate(-50%, 0); }
+  }
+  .hub-toast-btn {
+    border: none; border-radius: 9px; background: var(--accent); color: #fff;
+    font-size: 13px; font-weight: 500; font-family: inherit;
+    padding: 7px 14px; cursor: pointer; flex: none;
+    transition: background 0.2s ease, transform 0.12s ease;
+  }
+  .hub-toast-btn:hover:not(:disabled) { background: var(--accent-dark); }
+  .hub-toast-btn:active:not(:disabled) { transform: scale(0.95); }
+  .hub-toast-btn:disabled { opacity: 0.7; cursor: default; }
+  .hub-toast-close {
+    border: none; background: none; color: var(--faint);
+    font-size: 17px; line-height: 1; cursor: pointer;
+    padding: 4px 6px; border-radius: 7px; flex: none;
+    transition: color 0.2s ease, background 0.2s ease;
+  }
+  .hub-toast-close:hover { color: var(--muted); background: #f3f3f1; }
+
   /* ---------- 主页 · 标题区 ---------- */
   .hero { text-align: center; margin-bottom: 44px; }
   .hero h1 {
@@ -357,6 +389,11 @@
 </head>
 <body>
 <div id="toast" class="toast" hidden></div>
+<div id="hub-toast" class="hub-toast" hidden>
+  <span id="hub-toast-text">已更新到最新版本</span>
+  <button class="hub-toast-btn" id="hub-restart-btn" onclick="restartHub()">重启生效</button>
+  <button class="hub-toast-close" onclick="dismissHubToast()" aria-label="关闭">&times;</button>
+</div>
 
 <!-- ========== 视图一 · 主页 ========== -->
 <div class="page" id="view-home">
@@ -570,11 +607,53 @@ async function fetchStatus() {
     state.refreshing = Boolean(data.refreshing);
     state.statusFailed = false;
     updateStrip(state.refreshing);
+    maybeShowHubToast(data);
   } catch (e) {
     if (!state.statusFailed) {
       state.statusFailed = true;
       toast(`状态检查失败：${e.message}`);
     }
+  }
+}
+
+/* ---------- Hub 更新提示与重启 ---------- */
+let hubToastDismissed = false;  // 手动关闭后本次会话不再出现
+let hubRestarting = false;
+
+function maybeShowHubToast(data) {
+  if (hubToastDismissed || hubRestarting) return;
+  if (data.hub && data.hub.updated) el("hub-toast").hidden = false;
+}
+
+function dismissHubToast() {
+  hubToastDismissed = true;
+  el("hub-toast").hidden = true;
+}
+
+async function restartHub() {
+  const btn = el("hub-restart-btn");
+  const text = el("hub-toast-text");
+  btn.disabled = true;
+  try {
+    await apiPost("/api/restart");
+  } catch (e) {
+    text.textContent = e.message || "有任务正在运行，请稍后重启";
+    btn.disabled = false;
+    return;
+  }
+  hubRestarting = true;
+  text.textContent = "正在重启…";
+  btn.hidden = true;
+  // 旧进程约 0.5 秒后退出，稍等再开始探测新进程
+  setTimeout(probeHubAlive, 2500);
+}
+
+async function probeHubAlive() {
+  try {
+    await apiGet("/api/status");
+    location.reload();  // 服务已恢复，加载新版本页面
+  } catch (e) {
+    setTimeout(probeHubAlive, 2000);
   }
 }
 
@@ -926,7 +1005,7 @@ route();
 fetchTools().then(renderCards).catch(e => toast(`加载工具列表失败：${e.message}`));
 fetchStatus();
 setInterval(() => {
-  if (!document.hidden && !state.currentTool) fetchStatus();
+  if (!document.hidden) fetchStatus();  // 工具页也轮询，及时发现 Hub 自更新
 }, 3000);
 </script>
 </body>
