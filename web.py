@@ -6,6 +6,8 @@
 """
 
 import json
+import shutil
+import subprocess
 import threading
 import time
 import webbrowser
@@ -194,6 +196,90 @@ def _logs_payload(since: int) -> dict:
     return {"lines": lines, "last": last}
 
 
+# /api/inspect-file 在该工具 .venv 中执行的驱动代码：
+# 用 openpyxl 只读模式列出 Sheet 名或指定 Sheet 的首行表头，结果以标记行输出 JSON
+_INSPECT_MARKER = "__INSPECT_RESULT__"
+_INSPECT_CODE = r"""
+import json
+import sys
+
+from openpyxl import load_workbook
+
+path, what = sys.argv[1], sys.argv[2]
+sheet = sys.argv[3] if len(sys.argv) > 3 else ""
+
+wb = load_workbook(path, read_only=True)
+try:
+    if what == "sheets":
+        result = list(wb.sheetnames)
+    else:
+        name = sheet or wb.sheetnames[0]
+        if name not in wb.sheetnames:
+            raise ValueError(f"Sheet 不存在：{name}")
+        row = next(wb[name].iter_rows(min_row=1, max_row=1, values_only=True), ())
+        result = [str(c).strip() for c in row if c is not None and str(c).strip()]
+    print("__INSPECT_RESULT__" + json.dumps(result, ensure_ascii=False))
+finally:
+    wb.close()
+"""
+
+
+def _inspect_file(body: dict) -> tuple:
+    """读取 Excel 文件的 Sheet 列表或首行表头（供前端动态下拉选项）。
+
+    在对应工具的 .venv 里同步执行 openpyxl（read_only 模式），超时 120 秒。
+    返回 (payload, http_status)；所有失败路径均为中文错误信息。
+    """
+    tool_id = str(body.get("tool_id") or "")
+    what = str(body.get("what") or "")
+    path_text = str(body.get("path") or "").strip().strip('"').strip("'")
+    sheet = str(body.get("sheet") or "").strip()
+
+    tool = _find_tool(tool_id)
+    if tool is None:
+        return {"ok": False, "error": f"未知工具：{tool_id}"}, 404
+    if what not in ("sheets", "columns"):
+        return {"ok": False, "error": "what 必须是 sheets 或 columns"}, 400
+    if not path_text:
+        return {"ok": False, "error": "请先填写文件路径"}, 400
+    file_path = Path(path_text)
+    if not file_path.is_file():
+        return {"ok": False, "error": f"文件不存在：{path_text}"}, 400
+    if file_path.suffix.lower() not in (".xlsx", ".xlsm"):
+        return {"ok": False, "error": "只能读取 .xlsx 格式的 Excel 文件"}, 400
+    if shutil.which("uv") is None:
+        return {"ok": False, "error": "未找到 uv，无法读取文件"}, 500
+
+    try:
+        r = subprocess.run(
+            ["uv", "run", "python", "-X", "utf8", "-c", _INSPECT_CODE,
+             str(file_path), what, sheet],
+            cwd=tool["path"],
+            capture_output=True, text=True,
+            encoding="utf-8", errors="replace",
+            timeout=120,
+        )
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "error": "读取超时（120 秒），文件可能过大或被占用"}, 500
+
+    if r.returncode != 0:
+        detail = ""
+        for line in (r.stderr or "").strip().splitlines():
+            line = line.strip()
+            if line and "Warning" not in line:
+                detail = line  # 取最后一行有效报错
+        return {"ok": False, "error": f"读取 Excel 失败：{detail or '未知错误'}"}, 400
+
+    for line in (r.stdout or "").splitlines():
+        if line.startswith(_INSPECT_MARKER):
+            try:
+                options = json.loads(line[len(_INSPECT_MARKER):])
+            except json.JSONDecodeError:
+                break
+            return {"ok": True, "options": options}, 200
+    return {"ok": False, "error": "读取 Excel 失败：未获得有效结果"}, 500
+
+
 class HubRequestHandler(BaseHTTPRequestHandler):
     """路由处理：静态页面 + JSON API。"""
 
@@ -271,6 +357,16 @@ class HubRequestHandler(BaseHTTPRequestHandler):
         if parsed.path == "/api/refresh-all":
             threading.Thread(target=_refresh_all_background, daemon=True).start()
             self._send_json({"ok": True, "message": "已开始全量更新与环境搭建（后台执行）"})
+            return
+
+        # /api/inspect-file —— 读取 Excel 的 Sheet 列表 / 首行表头，供动态下拉选项
+        if parsed.path == "/api/inspect-file":
+            body = self._read_json_body()
+            if body is None or not isinstance(body, dict):
+                self._send_json({"ok": False, "error": "请求体必须是 JSON 对象"}, status=400)
+                return
+            payload, status = _inspect_file(body)
+            self._send_json(payload, status=status)
             return
 
         # /api/run/<tool_id>/<action_id> —— 启动工具操作任务，返回 {"job_id": "..."}

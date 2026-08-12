@@ -251,9 +251,16 @@
     box-shadow: 0 0 0 3.5px var(--accent-soft);
   }
   .field input.path { font-family: var(--mono); font-size: 12.5px; }
-  .field input.dragover {
-    border-color: var(--accent); background: var(--accent-soft);
-    box-shadow: 0 0 0 3.5px var(--accent-soft);
+  .field label .hint {
+    margin-left: 8px; font-size: 11.5px; color: var(--faint); font-weight: 400;
+  }
+  .select-wrap { position: relative; }
+  .select-wrap .mini-spinner {
+    position: absolute; right: 34px; top: 50%; margin-top: -7px;
+    width: 14px; height: 14px;
+    border: 2px solid #d9d9f0; border-top-color: var(--accent);
+    border-radius: 50%; animation: rot 0.7s linear infinite;
+    pointer-events: none;
   }
   .field select {
     appearance: none; -webkit-appearance: none; cursor: pointer;
@@ -553,24 +560,32 @@ function fieldHtml(spec) {
   const req = spec.required ? `<span class="req">*</span>` : "";
   const required = spec.required ? "required" : "";
   const value = esc(spec.default || "");
+  const hint = spec.hint ? `<span class="hint">${esc(spec.hint)}</span>` : "";
   let control;
   if (Array.isArray(spec.options) && spec.options.length > 0) {
+    // 静态选项：渲染为下拉，default 对应的项默认选中
     const opts = spec.options.map(o => {
       const v = typeof o === "object" ? o.value : o;
       const label = typeof o === "object" ? (o.label ?? o.value) : o;
       const sel = String(v) === String(spec.default || "") ? " selected" : "";
       return `<option value="${esc(v)}"${sel}>${esc(label)}</option>`;
     }).join("");
-    control = `<select name="${esc(spec.key)}" ${required}>${opts}</select>`;
+    control = selectWrap(`<select name="${esc(spec.key)}" ${required}>${opts}</select>`);
+  } else if (spec.options_from) {
+    // 动态选项：依赖字段填好后由 /api/inspect-file 加载，首项固定「（自动识别）」
+    control = selectWrap(`<select name="${esc(spec.key)}"><option value="">（自动识别）</option></select>`);
   } else if (spec.type === "path") {
     control = `<input class="path" type="text" name="${esc(spec.key)}" value="${value}"
-      placeholder="粘贴文件路径或把文件拖到这里" ${required} spellcheck="false"
-      ondragover="pathDragOver(event)" ondragleave="pathDragLeave(event)" ondrop="pathDrop(event)">`;
+      placeholder="${esc(spec.placeholder || "请粘贴文件路径")}" ${required} spellcheck="false">`;
   } else {
     control = `<input type="text" name="${esc(spec.key)}" value="${value}"
       placeholder="${esc(spec.placeholder || "")}" ${required} spellcheck="false">`;
   }
-  return `<div class="field"><label>${esc(spec.label || spec.key)}${req}</label>${control}</div>`;
+  return `<div class="field"><label>${esc(spec.label || spec.key)}${req}${hint}</label>${control}</div>`;
+}
+
+function selectWrap(selectHtml) {
+  return `<div class="select-wrap">${selectHtml}<span class="mini-spinner" hidden></span></div>`;
 }
 
 function renderActions(tool) {
@@ -621,25 +636,74 @@ function renderActions(tool) {
       </div>
     </section>`;
   }).join("");
+  // 为含动态选项的表单挂依赖监听
+  for (const a of tool.actions) wireDynamicFields(tool, a);
 }
 
-/* ---------- 路径输入框拖拽 ---------- */
-function pathDragOver(e) {
-  e.preventDefault();
-  e.currentTarget.classList.add("dragover");
+/* ---------- 动态下拉选项（/api/inspect-file） ---------- */
+const inspectTokens = {};   // "formId:key" -> 递增令牌，丢弃过期响应
+const inspectTimers = {};   // "formId:key" -> 防抖定时器
+
+// 依赖字段变化后（防抖 500ms）加载动态选项
+function wireDynamicFields(tool, action) {
+  const form = el(`form-${action.id}`);
+  if (!form) return;
+  const dynSpecs = (action.inputs || []).filter(s => s.options_from);
+  if (dynSpecs.length === 0) return;
+  const onEdit = (e) => {
+    const name = e.target && e.target.name;
+    if (!name) return;
+    for (const spec of dynSpecs) {
+      if (!spec.options_from.depends_on.includes(name)) continue;
+      const tokenKey = `${form.id}:${spec.key}`;
+      clearTimeout(inspectTimers[tokenKey]);
+      inspectTimers[tokenKey] = setTimeout(
+        () => loadDynamicOptions(form, tool.id, spec), 500);
+    }
+  };
+  form.addEventListener("input", onEdit);
+  form.addEventListener("change", onEdit);  // select 的变更在部分浏览器不触发 input
 }
-function pathDragLeave(e) {
-  e.currentTarget.classList.remove("dragover");
-}
-function pathDrop(e) {
-  e.preventDefault();
-  const input = e.currentTarget;
-  input.classList.remove("dragover");
-  let text = e.dataTransfer.getData("text/plain");
-  if (!text && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-    text = e.dataTransfer.files[0].path || e.dataTransfer.files[0].name || "";
+
+async function loadDynamicOptions(form, toolId, spec) {
+  const sel = form.elements[spec.key];
+  if (!sel) return;
+  const of = spec.options_from;
+  const depPath = form.elements[of.depends_on[0]];
+  const depSheet = of.depends_on.length > 1 ? form.elements[of.depends_on[1]] : null;
+  const pathVal = depPath ? cleanPath(depPath.value) : "";
+  const sheetVal = depSheet ? depSheet.value.trim() : "";
+  const wrap = sel.closest(".select-wrap");
+  const spinner = wrap && wrap.querySelector(".mini-spinner");
+  const tokenKey = `${form.id}:${spec.key}`;
+  const token = (inspectTokens[tokenKey] = (inspectTokens[tokenKey] || 0) + 1);
+
+  // 文件路径未填时只保留「（自动识别）」
+  if (!pathVal) {
+    sel.innerHTML = `<option value="">（自动识别）</option>`;
+    return;
   }
-  if (text) input.value = cleanPath(text);
+  sel.disabled = true;
+  sel.innerHTML = `<option value="">加载中…</option>`;
+  if (spinner) spinner.hidden = false;
+  try {
+    const data = await apiPost("/api/inspect-file", {
+      tool_id: toolId, path: pathVal, what: of.what, sheet: sheetVal,
+    });
+    if (inspectTokens[tokenKey] !== token) return;  // 已有更新的请求
+    const opts = (data.options || []).map(o =>
+      `<option value="${esc(o)}">${esc(o)}</option>`).join("");
+    sel.innerHTML = `<option value="">（自动识别）</option>` + opts;
+  } catch (e) {
+    if (inspectTokens[tokenKey] !== token) return;
+    sel.innerHTML = `<option value="">（自动识别）</option>`;
+    toast(`选项加载失败：${e.message}`);
+  } finally {
+    if (inspectTokens[tokenKey] === token) {
+      sel.disabled = false;
+      if (spinner) spinner.hidden = true;
+    }
+  }
 }
 
 /* ---------- 运行状态机 ---------- */

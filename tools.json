@@ -110,8 +110,12 @@
           "label": "从 NOVA 自定义报表生成 All Fields",
           "description": "合并 Digital / TV / OOH 排期文件，生成 All Fields 报表（输出到排期根目录下的 输出/ 文件夹）",
           "inputs": [
-            {"key": "root", "label": "排期文件根目录", "type": "path", "required": true, "default": "", "placeholder": "包含 Digital / TV / OOH 排期文件的目录"},
-            {"key": "mode", "label": "输出模式", "type": "text", "required": false, "default": "both", "placeholder": "month（按月合并）/ day（按天拆分）/ both（两者都导出，默认）"}
+            {"key": "root", "label": "排期文件根目录", "type": "path", "required": true, "default": "", "placeholder": "请粘贴文件夹路径"},
+            {"key": "mode", "label": "输出模式", "type": "text", "required": false, "default": "both", "options": [
+              {"value": "month", "label": "按月合并"},
+              {"value": "day", "label": "按天拆分"},
+              {"value": "both", "label": "两者都导出（默认）"}
+            ]}
           ],
           "command": ["uv", "run", "python", "-X", "utf8", "-c", "import sys\nfrom custom_reports_to_report import run_nova_to_all_fields\nrun_nova_to_all_fields(root_text=sys.argv[1], split_mode=(sys.argv[2].strip() or 'both'))", "{root}", "{mode}"]
         },
@@ -120,9 +124,9 @@
           "label": "从 All Fields 导出各项报告",
           "description": "将已有的 All Fields 文件按导出规则模板二次拆分为多份业务报表",
           "inputs": [
-            {"key": "all_fields", "label": "All Fields 文件路径", "type": "path", "required": true, "default": "", "placeholder": "拖入或粘贴 All Fields Excel 文件路径"},
+            {"key": "all_fields", "label": "All Fields 文件路径", "type": "path", "required": true, "default": "", "placeholder": "请粘贴文件路径"},
             {"key": "rules", "label": "导出规则文件路径（选填）", "type": "path", "required": false, "default": "", "placeholder": "留空则在程序目录自动查找 导出规则.xlsx / export_rules.json"},
-            {"key": "sheet", "label": "要处理的 Sheet 名（选填）", "type": "text", "required": false, "default": "", "placeholder": "文件含多个 Sheet 时必填，单 Sheet 可留空"}
+            {"key": "sheet", "label": "要处理的 Sheet 名（选填）", "type": "text", "required": false, "default": "", "options_from": {"what": "sheets", "depends_on": ["all_fields"]}}
           ],
           "command": ["uv", "run", "python", "-X", "utf8", "-c", "import sys\nfrom pathlib import Path\nfrom custom_reports_to_report.all_fields_export import run_all_fields_export\n\naf_text, rule_text, sheet = sys.argv[1], sys.argv[2].strip(), sys.argv[3].strip()\naf_path = Path(af_text)\nsheet_name = sheet or None\nif sheet_name is None:\n    import pandas as pd\n    names = list(pd.ExcelFile(af_path).sheet_names)\n    if len(names) > 1:\n        print('⚠ 该文件包含多个 Sheet：' + '、'.join(names))\n        print('⚠ 请在表单中填写要处理的 Sheet 名后重试。')\n        sys.exit(1)\nrun_all_fields_export(af_path=af_path, rule_path=Path(rule_text) if rule_text else None, sheet_name=sheet_name)", "{all_fields}", "{rules}", "{sheet}"]
         }
@@ -143,11 +147,11 @@
           "label": "拆分数据",
           "description": "将 National / Province 层级数据拆分为 City 层级，输出 Spillover_Output_<时间戳>.xlsx",
           "inputs": [
-            {"key": "file", "label": "原始数据 Excel 文件路径", "type": "path", "required": true, "default": "", "placeholder": "拖入或粘贴 Excel 文件路径"},
-            {"key": "sheet", "label": "Sheet 名（选填）", "type": "text", "required": false, "default": "", "placeholder": "留空使用第一个 Sheet"},
-            {"key": "dimension", "label": "层级判断列（选填）", "type": "text", "required": false, "default": "", "placeholder": "如 Market；留空自动识别"},
-            {"key": "values", "label": "数值列（选填）", "type": "text", "required": false, "default": "", "placeholder": "多个列用英文逗号分隔；留空自动识别数字列"},
-            {"key": "split_column", "label": "拆分 Sheet 列（选填）", "type": "text", "required": false, "default": "", "placeholder": "超过单 Sheet 行数限制时按该列拆分；留空按行数自动切分"}
+            {"key": "file", "label": "原始数据 Excel 文件路径", "type": "path", "required": true, "default": "", "placeholder": "请粘贴文件路径"},
+            {"key": "sheet", "label": "Sheet 名（选填）", "type": "text", "required": false, "default": "", "options_from": {"what": "sheets", "depends_on": ["file"]}},
+            {"key": "dimension", "label": "层级判断列（选填）", "type": "text", "required": false, "default": "", "options_from": {"what": "columns", "depends_on": ["file", "sheet"]}},
+            {"key": "values", "label": "数值列（选填）", "type": "text", "required": false, "default": "", "placeholder": "留空自动识别数字列", "hint": "多个列名用英文逗号分隔"},
+            {"key": "split_column", "label": "拆分 Sheet 列（选填）", "type": "text", "required": false, "default": "", "options_from": {"what": "columns", "depends_on": ["file", "sheet"]}}
           ],
           "command": ["uv", "run", "python", "Spillover Tool.py", "{file}", {"args": ["--sheet", "{sheet}"], "omit_if_empty": true}, {"args": ["--dimension", "{dimension}"], "omit_if_empty": true}, {"args": ["--values", "{values}"], "omit_if_empty": true}, {"args": ["--split-column", "{split_column}"], "omit_if_empty": true}]
         },
