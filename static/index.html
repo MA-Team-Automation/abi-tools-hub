@@ -193,6 +193,12 @@
     background: linear-gradient(90deg, transparent, var(--accent), transparent);
     animation: slide 1.15s ease-in-out infinite;
   }
+  /* 拿到真实百分比后切换为 determinate 模式：纯色 + 平滑 width 过渡 */
+  .action-card.running.has-progress .run-progress-bar {
+    animation: none; left: 0; width: 0;
+    background: var(--accent);
+    transition: width 0.3s ease;
+  }
   .action-card.done .run-progress-bar {
     animation: none; left: 0; width: 100%; background: var(--green);
     transition: width 0.35s ease;
@@ -284,6 +290,11 @@
   }
   @keyframes pulse { 50% { opacity: 0.3; } }
   .run-status .elapsed { font-family: var(--mono); font-size: 12px; color: var(--faint); }
+  .run-status .run-meta { display: inline-flex; align-items: center; gap: 10px; flex: none; }
+  .run-status .pct {
+    font-family: var(--mono); font-size: 12px; font-weight: 600;
+    color: var(--accent);
+  }
 
   /* 完成态 */
   .result {
@@ -448,6 +459,42 @@ function fmtElapsed(ms) {
   const m = String(Math.floor(total / 60)).padStart(2, "0");
   const s = String(total % 60).padStart(2, "0");
   return `${m}:${s}`;
+}
+
+/* ---------- 真实进度解析 ---------- */
+// 从一条原始日志解析真实进度：先剥 ANSI，再按 \r 切片段（tqdm/rich 用 \r 覆盖
+// 同行），从最新片段向前找。返回 {percent, stage}，取不到为 null。
+function parseProgress(raw) {
+  const clean = String(raw).replace(/\x1b\[[0-9;]*[A-Za-z]/g, "");
+  const frags = clean.split("\r").map(s => s.trim()).filter(Boolean);
+  let percent = null, stage = null;
+  for (let i = frags.length - 1; i >= 0 && (percent === null || stage === null); i--) {
+    const f = frags[i];
+    if (percent === null) {
+      let m = f.match(/(\d+(?:\.\d+)?)%\|/);           // tqdm：45%|████| 123/456
+      if (!m) m = f.match(/\[\s*(\d+(?:\.\d+)?)%\]/);  // Spillover：[ 45%] ...
+      if (!m) m = f.match(/(\d+(?:\.\d+)?)%/);         // 通用百分比兜底
+      if (m) percent = Math.min(100, Math.max(0, parseFloat(m[1])));
+    }
+    if (stage === null) stage = extractStage(f);
+  }
+  return { percent, stage };
+}
+
+// 从单个片段提取有信息量的阶段文案（剥离进度条/百分比残留），无则返回 null
+function extractStage(frag) {
+  if (!frag || frag.startsWith("$")) return null;  // 跳过 argv 回显行
+  let s = frag;
+  const tm = s.match(/^(.*?)\d+(?:\.\d+)?%\|/);    // tqdm：取 % 前的 description
+  if (tm) {
+    s = tm[1];
+  } else {
+    s = s.replace(/\[\s*\d+(?:\.\d+)?%\]\s*/g, "")  // 去 [ 45%] 前缀
+         .replace(/\d+(?:\.\d+)?%/g, "");           // 去残留百分比
+  }
+  s = s.replace(/^[:：\s.…|]+/, "").replace(/[:：\s.…|]+$/, "").trim();
+  if (s.length < 2) return null;
+  return s.length > 40 ? s.slice(0, 40) + "…" : s;
 }
 
 /* ================= 路由 ================= */
@@ -618,7 +665,10 @@ function renderActions(tool) {
       ${form}
       <div class="run-status" id="rs-${esc(a.id)}" hidden>
         <span class="phase" id="ph-${esc(a.id)}"></span>
-        <span class="elapsed" id="el-${esc(a.id)}">00:00</span>
+        <span class="run-meta">
+          <span class="pct" id="pct-${esc(a.id)}"></span>
+          <span class="elapsed" id="el-${esc(a.id)}">00:00</span>
+        </span>
       </div>
       <div class="result result-ok" id="ok-${esc(a.id)}" hidden>
         <svg class="check" viewBox="0 0 52 52">
@@ -745,6 +795,8 @@ function startRunUI(key, actionId, jobId) {
     phase: "running",
     since: 0,
     tail: [],            // 最近 20 行日志（仅失败时展示）
+    percent: null,       // 解析到的最新真实百分比（无进度输出的工具保持 null）
+    stage: null,         // 解析到的真实阶段文案（null 时用伪轮换文案兜底）
     startTs: Date.now(),
     phaseIdx: 0,
     pollTimer: null, tickTimer: null, phaseTimer: null, resetTimer: null,
@@ -753,23 +805,37 @@ function startRunUI(key, actionId, jobId) {
 
   const card = el(`ac-${actionId}`);
   if (card) {
-    card.classList.remove("done", "failed");
+    card.classList.remove("done", "failed", "has-progress");
     card.classList.add("running");
+    const bar = card.querySelector(".run-progress-bar");
+    if (bar) bar.style.width = "";
     const btn = card.querySelector(".run-btn");
     if (btn) btn.disabled = true;
   }
   hide(`ok-${actionId}`); hide(`err-${actionId}`); show(`rs-${actionId}`);
   setText(`ph-${actionId}`, PHASES[0]);
   setText(`el-${actionId}`, "00:00");
+  setText(`pct-${actionId}`, "");
 
   ctx.tickTimer = setInterval(() => {
     setText(`el-${actionId}`, fmtElapsed(Date.now() - ctx.startTs));
   }, 1000);
   ctx.phaseTimer = setInterval(() => {
+    if (ctx.stage) return;  // 已有真实阶段文案时不再轮换伪文案
     ctx.phaseIdx = (ctx.phaseIdx + 1) % PHASES.length;
     setText(`ph-${actionId}`, PHASES[ctx.phaseIdx]);
   }, PHASE_MS);
   pollJob(key);
+}
+
+// 把解析到的百分比应用到进度条（切换为 determinate 模式）
+function applyPercent(ctx) {
+  const card = el(`ac-${ctx.actionId}`);
+  if (!card) return;
+  card.classList.add("has-progress");
+  const bar = card.querySelector(".run-progress-bar");
+  if (bar) bar.style.width = `${ctx.percent}%`;
+  setText(`pct-${ctx.actionId}`, `${Math.round(ctx.percent)}%`);
 }
 
 async function pollJob(key) {
@@ -781,6 +847,15 @@ async function pollJob(key) {
       if (line.seq > ctx.since) ctx.since = line.seq;
       ctx.tail.push(cleanLine(line.text));
       if (ctx.tail.length > 20) ctx.tail.shift();
+      const p = parseProgress(line.text);
+      if (p.percent !== null) {
+        ctx.percent = p.percent;  // 多阶段任务允许回落，不强制单调
+        applyPercent(ctx);
+      }
+      if (p.stage) {
+        ctx.stage = p.stage;
+        setText(`ph-${ctx.actionId}`, p.stage);
+      }
     }
     if (data.status !== "running") {
       finishRun(key, data.status === "done", data.exit_code);
@@ -799,6 +874,9 @@ function finishRun(key, ok, exitCode) {
   if (card) {
     card.classList.remove("running");
     card.classList.add(ok ? "done" : "failed");
+    // 内联 width 优先级高于 .done/.failed 的 CSS 规则，完成/失败时显式拉满
+    const bar = card.querySelector(".run-progress-bar");
+    if (bar) bar.style.width = "100%";
   }
   hide(`rs-${actionId}`);
   if (ok) {
@@ -821,7 +899,9 @@ function resetRunUI(key) {
   const actionId = ctx.actionId;
   const card = el(`ac-${actionId}`);
   if (card) {
-    card.classList.remove("done", "failed", "running");
+    card.classList.remove("done", "failed", "running", "has-progress");
+    const bar = card.querySelector(".run-progress-bar");
+    if (bar) bar.style.width = "";
     const btn = card.querySelector(".run-btn");
     if (btn) btn.disabled = false;
   }
