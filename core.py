@@ -9,7 +9,9 @@ import os
 import shutil
 import subprocess
 import sys
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 # 项目根目录（core.py 所在目录），tools.json 与其同级
@@ -218,10 +220,24 @@ def launch_tool(tool: dict) -> None:
 
 
 def refresh_all() -> list:
-    """对每个工具依次 ensure_repo、update_tool、setup_env，汇总日志行返回。"""
+    """对每个工具执行 ensure_repo、update_tool、setup_env，汇总日志行返回。
+
+    5 个工具之间用 ThreadPoolExecutor 并发执行（max_workers=5），git fetch 等
+    网络操作不再串行等待，总耗时接近最慢的单个工具；单个工具内部仍按
+    ensure_repo → update_tool → setup_env 顺序执行（后两步依赖前一步）。
+    日志行通过锁追加，保证线程安全。
+    """
     lines = []
-    for tool in load_tools():
+    lock = threading.Lock()
+
+    def _process(tool: dict) -> None:
+        tool_lines = []
         for step in (ensure_repo, update_tool, setup_env):
-            result = step(tool)
-            lines.extend(result.splitlines())
+            tool_lines.extend(step(tool).splitlines())
+        with lock:
+            lines.extend(tool_lines)
+
+    with ThreadPoolExecutor(max_workers=5) as pool:
+        # pool.map 会在所有工具完成后返回，异常在此抛出
+        list(pool.map(_process, load_tools()))
     return lines

@@ -10,6 +10,7 @@ import threading
 import time
 import webbrowser
 from collections import deque
+from concurrent.futures import ThreadPoolExecutor
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
@@ -30,6 +31,12 @@ _log_seq = 0
 _state_lock = threading.Lock()
 _running = {}
 _refresh_running = False
+
+# 快速状态缓存：启动时后台线程并行 check_status（git fetch 较慢），
+# 就绪前 /api/status 只返回本地瞬时信息（exists/env_ready，不走网络）
+_status_lock = threading.Lock()
+_status_cache = None  # dict: tool_id -> check_status 结果；None 表示尚未就绪
+_status_checking = False
 
 
 def log(message: str) -> None:
@@ -91,13 +98,13 @@ def _run_action(tool: dict, action: str, func) -> None:
 
 
 def _refresh_all_background() -> None:
-    """后台线程：自动检查更新、拉取主分支最新代码、搭建环境。"""
+    """后台线程：自动检查更新、拉取主分支最新代码、搭建环境。完成后刷新状态缓存。"""
     global _refresh_running
     with _state_lock:
         if _refresh_running:
             return
         _refresh_running = True
-    log("开始自动检查更新并搭建环境（git fetch 可能需要几分钟）...")
+    log("开始自动检查更新并搭建环境（并行执行，git fetch 可能需要几分钟）...")
     try:
         for line in core.refresh_all():
             log(line)
@@ -107,21 +114,76 @@ def _refresh_all_background() -> None:
     finally:
         with _state_lock:
             _refresh_running = False
+    # 更新/搭建完成后重新并行拉取各工具状态，让缓存反映最新结果
+    threading.Thread(target=_check_status_background, daemon=True).start()
+
+
+def _quick_status(tool: dict) -> dict:
+    """本地瞬时状态：只看文件系统（exists/env_ready），不执行 git 网络操作。"""
+    path = Path(tool["path"])
+    exists = (path / ".git").is_dir()
+    return {
+        "id": tool["id"],
+        "exists": exists,
+        "branch": None,
+        "behind": None,
+        "ahead": None,
+        "last_commit": None,
+        "env_ready": exists and (path / ".venv").is_dir(),
+        "update_available": None,
+    }
+
+
+def _check_status_background() -> None:
+    """后台线程：并行 check_status 全部工具并填充缓存（总耗时接近最慢单个 fetch）。"""
+    global _status_cache, _status_checking
+    with _status_lock:
+        if _status_checking:
+            return
+        _status_checking = True
+    try:
+        results = {}
+        with ThreadPoolExecutor(max_workers=5) as pool:
+            for status in pool.map(core.check_status, core.load_tools()):
+                results[status["id"]] = status
+        with _status_lock:
+            _status_cache = results
+        log("后台状态检查完成。")
+    except Exception as exc:
+        log(f"错误：后台状态检查失败：{exc}")
+    finally:
+        with _status_lock:
+            _status_checking = False
 
 
 def _status_payload() -> dict:
-    """组装 /api/status 响应：5 个工具的 check_status 结果 + 展示字段 + running 状态。"""
+    """组装 /api/status 响应。
+
+    缓存就绪后返回完整 check_status 结果；未就绪时返回本地瞬时信息
+    （exists/env_ready，git 字段为 None）。refreshing 表示后台状态检查
+    或全量更新是否仍在进行。
+    """
     with _state_lock:
         running = dict(_running)
         refresh_running = _refresh_running
+    with _status_lock:
+        cache = dict(_status_cache) if _status_cache is not None else None
+        checking = _status_checking
     tools = []
     for tool in core.load_tools():
-        status = core.check_status(tool)
+        if cache is not None and tool["id"] in cache:
+            status = dict(cache[tool["id"]])
+        else:
+            status = _quick_status(tool)
         status["display"] = tool["display"]
         status["description"] = tool["description"]
         status["running"] = running.get(tool["id"])
         tools.append(status)
-    return {"tools": tools, "refresh_running": refresh_running}
+    return {
+        "tools": tools,
+        "refresh_running": refresh_running,
+        "refreshing": refresh_running or checking,
+    }
 
 
 def _logs_payload(since: int) -> dict:
@@ -272,8 +334,10 @@ def serve(port: int, open_browser: bool = True, auto_refresh: bool = True) -> No
     """启动 Web 控制台。
 
     auto_refresh 为 True 时先开 daemon 线程执行 refresh_all（写日志缓冲）；
+    无论是否 auto_refresh，都会开后台线程并行检查各工具状态填充缓存；
     open_browser 为 True 时延迟 1 秒用默认浏览器打开控制台页面。
     """
+    threading.Thread(target=_check_status_background, daemon=True).start()
     if auto_refresh:
         threading.Thread(target=_refresh_all_background, daemon=True).start()
 
