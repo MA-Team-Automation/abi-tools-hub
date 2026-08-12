@@ -58,12 +58,24 @@ def _run_git(path: str, args: list, timeout: int = GIT_TIMEOUT) -> subprocess.Co
         return result
 
 
-def check_status(tool: dict) -> dict:
-    """检查单个工具仓库状态。
+def _fill_remote_counts(status: dict, tool: dict) -> None:
+    """基于现有 origin 引用计算 behind/ahead/update_available（不执行 fetch）。"""
+    path = tool["path"]
+    remote_ref = f"origin/{tool.get('branch', 'main')}"
+    rb = _run_git(path, ["rev-list", "--count", f"HEAD..{remote_ref}"])
+    ra = _run_git(path, ["rev-list", "--count", f"{remote_ref}..HEAD"])
+    if rb.returncode == 0 and ra.returncode == 0:
+        status["behind"] = int(rb.stdout.strip())
+        status["ahead"] = int(ra.stdout.strip())
+        status["update_available"] = status["behind"] > 0
+
+
+def local_status(tool: dict) -> dict:
+    """本地仓库状态（不执行 git fetch，纯本地命令）。
 
     返回 {"id", "exists", "branch", "behind", "ahead", "last_commit",
-          "env_ready", "update_available"}。
-    git fetch 失败（如无网络）时静默降级，behind/ahead 置 None。
+          "env_ready", "update_available"}。behind/ahead 基于现有 origin 引用，
+    适合在刚完成一轮 fetch/pull 后使用（此时引用已是最新）。
     """
     path = tool["path"]
     status = {
@@ -93,17 +105,28 @@ def check_status(tool: dict) -> dict:
     if r.returncode == 0:
         status["last_commit"] = r.stdout.strip() or None
 
-    # fetch 远程最新引用；失败（无网络等）时静默降级，behind/ahead 保持 None
+    _fill_remote_counts(status, tool)
+    return status
+
+
+def check_status(tool: dict) -> dict:
+    """检查单个工具仓库状态（含 git fetch）。
+
+    在 local_status 基础上先 fetch 远程最新引用再计算 behind/ahead；
+    fetch 失败（无网络等）时静默降级，behind/ahead 保持 None。
+    """
+    status = local_status(tool)
+    if not status["exists"]:
+        return status
     branch = tool.get("branch", "main")
-    r = _run_git(path, ["fetch", "origin", branch])
+    r = _run_git(tool["path"], ["fetch", "origin", branch])
     if r.returncode == 0:
-        remote_ref = f"origin/{branch}"
-        rb = _run_git(path, ["rev-list", "--count", f"HEAD..{remote_ref}"])
-        ra = _run_git(path, ["rev-list", "--count", f"{remote_ref}..HEAD"])
-        if rb.returncode == 0 and ra.returncode == 0:
-            status["behind"] = int(rb.stdout.strip())
-            status["ahead"] = int(ra.stdout.strip())
-            status["update_available"] = status["behind"] > 0
+        # fetch 成功，基于最新引用重算（覆盖 local_status 中基于旧引用的结果）
+        status["behind"] = status["ahead"] = status["update_available"] = None
+        _fill_remote_counts(status, tool)
+    else:
+        # fetch 失败时与旧行为一致：behind/ahead 置 None
+        status["behind"] = status["ahead"] = status["update_available"] = None
     return status
 
 
@@ -281,21 +304,30 @@ def self_update() -> dict:
     return _finish()
 
 
-def refresh_all() -> list:
+def refresh_all(on_tool_start=None, on_tool_done=None) -> list:
     """对每个工具执行 ensure_repo、update_tool、setup_env，汇总日志行返回。
 
     5 个工具之间用 ThreadPoolExecutor 并发执行（max_workers=5），git fetch 等
     网络操作不再串行等待，总耗时接近最慢的单个工具；单个工具内部仍按
     ensure_repo → update_tool → setup_env 顺序执行（后两步依赖前一步）。
     日志行通过锁追加，保证线程安全。
+
+    on_tool_start(tool) / on_tool_done(tool)：可选进度回调，在各工具开始/
+    完成时于工作线程中调用（调用方需自行保证线程安全）。
     """
     lines = []
     lock = threading.Lock()
 
     def _process(tool: dict) -> None:
+        if on_tool_start is not None:
+            on_tool_start(tool)
         tool_lines = []
-        for step in (ensure_repo, update_tool, setup_env):
-            tool_lines.extend(step(tool).splitlines())
+        try:
+            for step in (ensure_repo, update_tool, setup_env):
+                tool_lines.extend(step(tool).splitlines())
+        finally:
+            if on_tool_done is not None:
+                on_tool_done(tool)
         with lock:
             lines.extend(tool_lines)
 
