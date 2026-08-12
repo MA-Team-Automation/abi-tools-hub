@@ -126,7 +126,7 @@
   .icon-btn svg { width: 16px; height: 16px; }
   .icon-btn.spinning svg { animation: rot 1s linear infinite; }
 
-  /* 标题下方状态条：细如发丝的 shimmer 进度 */
+  /* 标题下方状态条：细如发丝的进度条 */
   .status-strip {
     margin-top: 20px; opacity: 0;
     transition: opacity 0.4s ease;
@@ -144,12 +144,19 @@
     background: linear-gradient(90deg, transparent, var(--accent), transparent);
     animation: slide 1.3s ease-in-out infinite;
   }
+  /* 拿到真实进度（done/total）后切换为 determinate：纯色 + 平滑 width 过渡 */
+  .hairline-bar.determinate {
+    animation: none; left: 0;
+    background: var(--accent);
+    transition: width 0.3s ease;
+  }
   .status-strip.done .hairline-bar {
-    animation: none; left: 0; width: 100%;
+    animation: none; left: 0; width: 100% !important;
     background: var(--green);
     transition: width 0.3s ease;
   }
   .status-text { font-size: 12.5px; color: var(--faint); text-align: center; }
+  .status-sub { font-size: 11px; color: #c7c7c2; text-align: center; margin-top: 1px; min-height: 14px; }
   .status-strip.done .status-text { color: var(--green); }
 
   /* ---------- 主页 · 工具卡片网格 ---------- */
@@ -429,8 +436,9 @@
     <h1>ABI 工具箱</h1>
     <p class="subtitle">让重复的工作，一键完成</p>
     <div class="status-strip" id="status-strip">
-      <div class="hairline"><div class="hairline-bar"></div></div>
+      <div class="hairline"><div class="hairline-bar" id="hairline-bar"></div></div>
       <p class="status-text" id="status-text">正在检查更新…</p>
+      <p class="status-sub" id="status-sub"></p>
     </div>
   </header>
   <main class="grid" id="grid"></main>
@@ -596,23 +604,42 @@ function renderCards() {
     </div>`).join("");
 }
 
-// 标题下方状态条：busy → shimmer；完成后短暂显示「一切就绪」并淡出
+// 标题下方状态条：拿到 refresh.done/total 后按真实比例推进，
+// 完成后短暂显示「一切就绪」并淡出
 let stripState = "idle";  // idle | busy | done
 let stripTimer = null;
-function updateStrip(refreshing) {
+function updateStrip(refreshing, refresh) {
   const strip = el("status-strip");
   const text = el("status-text");
+  const sub = el("status-sub");
+  const bar = el("hairline-bar");
   const btn = el("refresh-btn");
   btn.classList.toggle("spinning", refreshing);
   if (refreshing) {
     stripState = "busy";
     clearTimeout(stripTimer);
     strip.className = "status-strip busy";
-    text.textContent = "正在检查更新…";
+    if (refresh && refresh.total > 0) {
+      // 真实进度：done/total 比例平滑推进 + 当前更新项
+      bar.classList.add("determinate");
+      bar.style.width = `${Math.round((refresh.done / refresh.total) * 100)}%`;
+      text.textContent = `正在更新 · ${refresh.done}/${refresh.total}`;
+      sub.textContent = (refresh.current && refresh.current.length > 0)
+        ? `${refresh.current[0]}…` : "";
+    } else {
+      // 进度数据未就绪：保持 indeterminate 流光
+      bar.classList.remove("determinate");
+      bar.style.width = "";
+      text.textContent = "正在检查更新…";
+      sub.textContent = "";
+    }
   } else if (stripState === "busy") {
     stripState = "done";
     strip.className = "status-strip done";
+    bar.classList.remove("determinate");
+    bar.style.width = "";
     text.textContent = "一切就绪";
+    sub.textContent = "";
     stripTimer = setTimeout(() => {
       if (stripState === "done") {
         strip.className = "status-strip";
@@ -627,7 +654,7 @@ async function fetchStatus() {
     const data = await apiGet("/api/status");
     state.refreshing = Boolean(data.refreshing);
     state.statusFailed = false;
-    updateStrip(state.refreshing);
+    updateStrip(state.refreshing, data.refresh);
     maybeShowHubToast(data);
     maybeShowAccessToast(data);
   } catch (e) {
@@ -697,9 +724,9 @@ async function probeHubAlive() {
 }
 
 async function refreshAll() {
+  updateStrip(true, null);  // 点击瞬间立即反馈：图标旋转 + 进度条出现
   try {
     await apiPost("/api/refresh-all");
-    updateStrip(true);
   } catch (e) {
     toast(`检查更新启动失败：${e.message}`);
   }

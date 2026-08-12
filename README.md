@@ -40,7 +40,7 @@ Web API（供前端页面使用）：
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
-| GET | `/api/status` | 5 个工具的状态 + `refreshing`（后台更新进行中）+ `hub`（Hub 自更新结果） |
+| GET | `/api/status` | 5 个工具的状态 + `refreshing`（后台更新进行中）+ `refresh`（刷新进度 `{active, done, total, current}`，total=6 含 Hub 自更新）+ `hub`（Hub 自更新结果）+ `access_error`（仓库权限/认证失败标记） |
 | POST | `/api/refresh-all` | 后台先做 Hub 自更新检查，再并行全量更新并搭建环境 |
 | POST | `/api/restart` | 原地重启 Hub 进程（有任务运行时返回 409） |
 | POST | `/api/inspect-file` | 读取 Excel 的 Sheet 列表 / 首行表头（供表单动态下拉选项） |
