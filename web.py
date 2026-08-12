@@ -15,6 +15,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 import core
+import jobs
 
 ROOT = Path(__file__).resolve().parent
 INDEX_HTML = ROOT / "static" / "index.html"
@@ -46,6 +47,30 @@ def _find_tool(tool_id: str):
         if tool["id"] == tool_id:
             return tool
     return None
+
+
+def _find_action(tool: dict, action_id: str):
+    """在工具的 actions 中按 id 查找操作，找不到返回 None。"""
+    for action in tool.get("actions", []):
+        if action["id"] == action_id:
+            return action
+    return None
+
+
+def _tools_payload() -> dict:
+    """组装 /api/tools 响应：工具展示字段 + actions 定义，供前端渲染操作表单。"""
+    tools = []
+    for tool in core.load_tools():
+        tools.append({
+            "id": tool["id"],
+            "name": tool["name"],
+            "display": tool["display"],
+            "description": tool["description"],
+            "branch": tool["branch"],
+            "entry": tool["entry"],
+            "actions": tool.get("actions", []),
+        })
+    return {"tools": tools}
 
 
 def _run_action(tool: dict, action: str, func) -> None:
@@ -134,10 +159,28 @@ class HubRequestHandler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
+        parts = [p for p in parsed.path.split("/") if p]
+
         if parsed.path in ("/", "/index.html"):
             self._send_index()
         elif parsed.path == "/api/status":
             self._send_json(_status_payload())
+        elif parsed.path == "/api/tools":
+            self._send_json(_tools_payload())
+        elif parsed.path == "/api/jobs":
+            self._send_json({"jobs": jobs.get_jobs()})
+        elif len(parts) == 3 and parts[0] == "api" and parts[1] == "job":
+            # /api/job/<job_id>?since=N —— 任务增量日志轮询
+            qs = parse_qs(parsed.query)
+            try:
+                since = int(qs.get("since", ["0"])[0])
+            except ValueError:
+                since = 0
+            result = jobs.get_job_log(parts[2], since=since)
+            if result is None:
+                self._send_json({"error": f"任务不存在：{parts[2]}"}, status=404)
+            else:
+                self._send_json(result)
         elif parsed.path == "/api/logs":
             qs = parse_qs(parsed.query)
             try:
@@ -148,6 +191,17 @@ class HubRequestHandler(BaseHTTPRequestHandler):
         else:
             self._send_json({"error": "not found"}, status=404)
 
+    def _read_json_body(self):
+        """读取并解析请求体 JSON，失败返回 None（调用方负责回 400）。"""
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+        except ValueError:
+            return None
+        try:
+            return json.loads(self.rfile.read(length).decode("utf-8"))
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            return None
+
     def do_POST(self) -> None:
         parsed = urlparse(self.path)
         parts = [p for p in parsed.path.split("/") if p]
@@ -155,6 +209,30 @@ class HubRequestHandler(BaseHTTPRequestHandler):
         if parsed.path == "/api/refresh-all":
             threading.Thread(target=_refresh_all_background, daemon=True).start()
             self._send_json({"ok": True, "message": "已开始全量更新与环境搭建（后台执行）"})
+            return
+
+        # /api/run/<tool_id>/<action_id> —— 启动工具操作任务，返回 {"job_id": "..."}
+        if len(parts) == 4 and parts[0] == "api" and parts[1] == "run":
+            tool_id, action_id = parts[2], parts[3]
+            tool = _find_tool(tool_id)
+            if tool is None:
+                self._send_json({"ok": False, "error": f"未知工具：{tool_id}"}, status=404)
+                return
+            action = _find_action(tool, action_id)
+            if action is None:
+                self._send_json({"ok": False, "error": f"未知操作：{action_id}"}, status=404)
+                return
+            body = self._read_json_body()
+            if body is None or not isinstance(body, dict):
+                self._send_json({"ok": False, "error": "请求体必须是 JSON 对象"}, status=400)
+                return
+            try:
+                job_id = jobs.start_job(tool, action, body.get("params") or {})
+            except ValueError as exc:
+                self._send_json({"ok": False, "error": str(exc)}, status=400)
+                return
+            log(f"[{tool_id}] 已开始「{action['label']}」（{job_id}）")
+            self._send_json({"job_id": job_id})
             return
 
         # /api/<update|setup|launch>/<tool_id>
