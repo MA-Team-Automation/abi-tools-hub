@@ -59,6 +59,10 @@ _ACCESS_ERROR_PATTERNS = (
 # 会话级权限错误标记：一旦置 True 本会话保持（语义同 hub.updated）
 _access_error = False
 
+# 全量刷新进度：total 固定为 6（1 个 Hub 自更新 + 5 个工具）；
+# current 为正在进行的单元显示名列表（并行时可能有多个），供前端展示真实进度
+_refresh_progress = {"active": False, "done": 0, "total": 6, "current": []}
+
 
 def _is_access_error(text: str) -> bool:
     """判断日志文本是否包含仓库访问权限/认证失败特征（大小写不敏感）。"""
@@ -140,16 +144,51 @@ def _run_action(tool: dict, action: str, func) -> None:
             _running.pop(tool["id"], None)
 
 
+def _progress_begin(total: int, first: str) -> None:
+    """开始一轮刷新：重置进度并把第一个单元登记为进行中。"""
+    with _state_lock:
+        _refresh_progress.update({"active": True, "done": 0, "total": total,
+                                  "current": [first]})
+
+
+def _progress_start(name: str) -> None:
+    """登记一个单元进入进行中（可在工作线程并发调用）。"""
+    with _state_lock:
+        _refresh_progress["current"].append(name)
+
+
+def _progress_done(name: str) -> None:
+    """登记一个单元完成：done+1 并移出进行中列表。"""
+    with _state_lock:
+        _refresh_progress["done"] += 1
+        try:
+            _refresh_progress["current"].remove(name)
+        except ValueError:
+            pass
+
+
+def _progress_end() -> None:
+    """整轮结束。"""
+    with _state_lock:
+        _refresh_progress.update({"active": False, "current": []})
+
+
 def _refresh_all_background() -> None:
-    """后台线程：先检查 Hub 自更新，再并行拉取各工具最新代码、搭建环境。"""
+    """后台线程：单轮流程——Hub 自更新 + 并行拉取各工具代码、搭建环境，
+
+    结束后用本轮 fetch 后的本地 git 信息直接构建状态缓存（不再来一轮 fetch）。
+    """
     global _refresh_running
     with _state_lock:
         if _refresh_running:
             return
         _refresh_running = True
+    tools = core.load_tools()
+    hub_unit = "ABI 工具箱"
+    _progress_begin(total=1 + len(tools), first=hub_unit)
     log("开始自动检查更新并搭建环境（并行执行，git fetch 可能需要几分钟）...")
     try:
-        # 先检查 Hub 自身更新（含 main 分支/干净工作区/ff-only 保护）
+        # 单元 1：Hub 自身更新（含 main 分支/干净工作区/ff-only 保护）
         try:
             result = core.self_update()
             for line in result["log"].splitlines():
@@ -161,8 +200,16 @@ def _refresh_all_background() -> None:
                     _hub_status["updated"] = True
         except Exception as exc:
             log(f"错误：Hub 自更新检查失败：{exc}")
-        # 再并行更新 5 个工具
-        for line in core.refresh_all():
+        _progress_done(hub_unit)
+
+        # 单元 2-6：5 个工具并行更新（进度回调在各工作线程触发）
+        def _on_start(tool: dict) -> None:
+            _progress_start(tool["display"])
+
+        def _on_done(tool: dict) -> None:
+            _progress_done(tool["display"])
+
+        for line in core.refresh_all(_on_start, _on_done):
             log(line)
             _mark_access_error(line)
         log("自动更新与环境检查完成。")
@@ -171,8 +218,25 @@ def _refresh_all_background() -> None:
     finally:
         with _state_lock:
             _refresh_running = False
-    # 更新/搭建完成后重新并行拉取各工具状态，让缓存反映最新结果
-    threading.Thread(target=_check_status_background, daemon=True).start()
+        _progress_end()
+    # 用本轮 fetch/pull 后的本地 git 信息构建状态缓存（pull 后 behind 自然为 0，
+    # 无需再来一轮 fetch；纯本地命令，毫秒级完成）
+    _build_status_cache_local()
+
+
+def _build_status_cache_local() -> None:
+    """并行执行 local_status（不 fetch）填充状态缓存。"""
+    global _status_cache
+    try:
+        results = {}
+        with ThreadPoolExecutor(max_workers=5) as pool:
+            for status in pool.map(core.local_status, core.load_tools()):
+                results[status["id"]] = status
+        with _status_lock:
+            _status_cache = results
+        log("状态缓存已就绪（基于本轮更新结果）。")
+    except Exception as exc:
+        log(f"错误：状态缓存构建失败：{exc}")
 
 
 def _do_restart() -> None:
@@ -244,6 +308,8 @@ def _status_payload() -> dict:
         refresh_running = _refresh_running
         hub = dict(_hub_status)
         access_error = _access_error
+        refresh = dict(_refresh_progress)
+        refresh["current"] = list(_refresh_progress["current"])
     with _status_lock:
         cache = dict(_status_cache) if _status_cache is not None else None
         checking = _status_checking
@@ -261,6 +327,7 @@ def _status_payload() -> dict:
         "tools": tools,
         "refresh_running": refresh_running,
         "refreshing": refresh_running or checking,
+        "refresh": refresh,
         "hub": hub,
         "access_error": access_error,
     }
@@ -522,13 +589,15 @@ class HubRequestHandler(BaseHTTPRequestHandler):
 def serve(port: int, open_browser: bool = True, auto_refresh: bool = True) -> None:
     """启动 Web 控制台。
 
-    auto_refresh 为 True 时先开 daemon 线程执行 refresh_all（写日志缓冲）；
-    无论是否 auto_refresh，都会开后台线程并行检查各工具状态填充缓存；
+    auto_refresh 为 True 时开 daemon 线程执行单轮刷新（自更新 + 并行更新工具 +
+    构建状态缓存）；为 False（--no-update）时只开后台线程并行 check_status
+    填充缓存（含 fetch）。两条路径互斥，避免对同一批仓库重复 fetch。
     open_browser 为 True 时延迟 1 秒用默认浏览器打开控制台页面。
     """
-    threading.Thread(target=_check_status_background, daemon=True).start()
     if auto_refresh:
         threading.Thread(target=_refresh_all_background, daemon=True).start()
+    else:
+        threading.Thread(target=_check_status_background, daemon=True).start()
 
     global _server
     server = ThreadingHTTPServer(("127.0.0.1", port), HubRequestHandler)
