@@ -60,21 +60,31 @@
     animation: fadeIn 0.25s ease;
   }
 
-  /* ---------- Hub 更新提示（底部居中浮起） ---------- */
-  .hub-toast {
+  /* ---------- 底部浮起提示（Hub 更新 / 权限引导，可叠放） ---------- */
+  .toast-stack {
     position: fixed; bottom: 26px; left: 50%; transform: translateX(-50%);
-    z-index: 100; display: flex; align-items: center; gap: 14px;
+    z-index: 100; display: flex; flex-direction: column;
+    gap: 10px; align-items: center;
+    max-width: calc(100vw - 48px);
+  }
+  .hub-toast {
+    display: flex; align-items: center; gap: 14px;
     background: var(--card); border: 1px solid var(--border);
     border-radius: 14px; padding: 11px 12px 11px 20px;
     font-size: 13.5px; color: var(--text);
     box-shadow: 0 18px 48px rgba(16, 24, 40, 0.16);
     animation: hubRise 0.4s ease;
-    max-width: calc(100vw - 48px);
   }
   @keyframes hubRise {
-    from { opacity: 0; transform: translate(-50%, 12px); }
-    to { opacity: 1; transform: translate(-50%, 0); }
+    from { opacity: 0; transform: translateY(12px); }
+    to { opacity: 1; transform: translateY(0); }
   }
+  .hub-toast .access-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--red); flex: none;
+  }
+  .hub-toast .access-texts { display: flex; flex-direction: column; gap: 1px; }
+  .hub-toast .access-texts small { font-size: 11.5px; color: var(--muted); }
   .hub-toast-btn {
     border: none; border-radius: 9px; background: var(--accent); color: #fff;
     font-size: 13px; font-weight: 500; font-family: inherit;
@@ -389,10 +399,21 @@
 </head>
 <body>
 <div id="toast" class="toast" hidden></div>
-<div id="hub-toast" class="hub-toast" hidden>
-  <span id="hub-toast-text">已更新到最新版本</span>
-  <button class="hub-toast-btn" id="hub-restart-btn" onclick="restartHub()">重启生效</button>
-  <button class="hub-toast-close" onclick="dismissHubToast()" aria-label="关闭">&times;</button>
+<div class="toast-stack">
+  <div id="access-toast" class="hub-toast" hidden>
+    <span class="access-dot"></span>
+    <span class="access-texts">
+      <span>无法访问工具仓库</span>
+      <small>请先申请加入 MA-Team-Automation 组织，并完成 GitHub 登录</small>
+    </span>
+    <button class="hub-toast-btn" onclick="openOrgPage()">申请加入</button>
+    <button class="hub-toast-close" onclick="dismissAccessToast()" aria-label="关闭">&times;</button>
+  </div>
+  <div id="hub-toast" class="hub-toast" hidden>
+    <span id="hub-toast-text">已更新到最新版本</span>
+    <button class="hub-toast-btn" id="hub-restart-btn" onclick="restartHub()">重启生效</button>
+    <button class="hub-toast-close" onclick="dismissHubToast()" aria-label="关闭">&times;</button>
+  </div>
 </div>
 
 <!-- ========== 视图一 · 主页 ========== -->
@@ -608,6 +629,7 @@ async function fetchStatus() {
     state.statusFailed = false;
     updateStrip(state.refreshing);
     maybeShowHubToast(data);
+    maybeShowAccessToast(data);
   } catch (e) {
     if (!state.statusFailed) {
       state.statusFailed = true;
@@ -628,6 +650,23 @@ function maybeShowHubToast(data) {
 function dismissHubToast() {
   hubToastDismissed = true;
   el("hub-toast").hidden = true;
+}
+
+/* ---------- 仓库权限引导 ---------- */
+let accessToastDismissed = false;  // 手动关闭后本次会话不再出现
+
+function maybeShowAccessToast(data) {
+  if (accessToastDismissed) return;
+  if (data.access_error) el("access-toast").hidden = false;
+}
+
+function dismissAccessToast() {
+  accessToastDismissed = true;
+  el("access-toast").hidden = true;
+}
+
+function openOrgPage() {
+  window.open("https://github.com/MA-Team-Automation", "_blank", "noopener");
 }
 
 async function restartHub() {

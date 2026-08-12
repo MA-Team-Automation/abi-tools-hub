@@ -46,6 +46,36 @@ _status_checking = False
 # updated=True 表示本次运行期间拉到了新版本（需重启生效，重启前保持 True）
 _hub_status = {"behind": None, "updated": False}
 
+# 仓库访问权限/认证失败的典型日志特征（小写匹配）：
+# GitHub 私有仓库无权限或未登录时，clone/fetch/pull 的常见报错
+_ACCESS_ERROR_PATTERNS = (
+    "repository not found",    # GitHub 私有仓库无权限（或未登录）时的 404
+    "remote: not found",       # 同上，remote 前缀形式
+    "authentication failed",   # 凭据无效/过期
+    "could not read username", # 无交互终端下询问用户名失败（未配置凭据）
+    "403",                     # HTTP 403 Forbidden
+)
+
+# 会话级权限错误标记：一旦置 True 本会话保持（语义同 hub.updated）
+_access_error = False
+
+
+def _is_access_error(text: str) -> bool:
+    """判断日志文本是否包含仓库访问权限/认证失败特征（大小写不敏感）。"""
+    lowered = text.lower()
+    return any(p in lowered for p in _ACCESS_ERROR_PATTERNS)
+
+
+def _mark_access_error(line: str) -> None:
+    """检查一行日志，命中权限特征则置起会话级 access_error 标记。"""
+    global _access_error
+    if _access_error:
+        return
+    if _is_access_error(line):
+        with _state_lock:
+            _access_error = True
+        log("警告：检测到仓库访问权限问题（可能需要申请组织权限或完成 GitHub 登录）")
+
 # 进程启动时的原始 argv，/api/restart 原地重启时原样复用
 _LAUNCH_ARGV = sys.argv[:]
 # serve() 启动后保存服务器实例，重启前先释放端口
@@ -124,6 +154,7 @@ def _refresh_all_background() -> None:
             result = core.self_update()
             for line in result["log"].splitlines():
                 log(line)
+                _mark_access_error(line)
             with _state_lock:
                 _hub_status["behind"] = result["behind"]
                 if result["updated"]:
@@ -133,6 +164,7 @@ def _refresh_all_background() -> None:
         # 再并行更新 5 个工具
         for line in core.refresh_all():
             log(line)
+            _mark_access_error(line)
         log("自动更新与环境检查完成。")
     except Exception as exc:
         log(f"错误：自动更新失败：{exc}")
@@ -211,6 +243,7 @@ def _status_payload() -> dict:
         running = dict(_running)
         refresh_running = _refresh_running
         hub = dict(_hub_status)
+        access_error = _access_error
     with _status_lock:
         cache = dict(_status_cache) if _status_cache is not None else None
         checking = _status_checking
@@ -229,6 +262,7 @@ def _status_payload() -> dict:
         "refresh_running": refresh_running,
         "refreshing": refresh_running or checking,
         "hub": hub,
+        "access_error": access_error,
     }
 
 
