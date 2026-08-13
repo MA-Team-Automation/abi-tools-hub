@@ -49,7 +49,7 @@
             {"key": "template", "label": "模板文件路径", "type": "path", "required": true, "default": "", "placeholder": "请粘贴文件路径"},
             {"key": "start_row", "label": "起始行号", "type": "text", "required": false, "default": "500", "placeholder": "默认 500"}
           ],
-          "command": ["uv", "run", "python", "-X", "utf8", "MediaTools Generator.py", "--supp", "{supp}", "--template", "{template}", "--start-row", "{start_row}"]
+          "command": ["uv", "run", "python", "-X", "utf8", "MediaTools Generator.py", "--supp", "{supp}", "--template", "{template}", {"args": ["--start-row", "{start_row}"], "omit_if_empty": true}]
         },
         {
           "id": "check-file",
@@ -117,7 +117,7 @@
               {"value": "both", "label": "两者都导出（默认）"}
             ]}
           ],
-          "command": ["uv", "run", "python", "-X", "utf8", "-c", "import sys\nfrom custom_reports_to_report import run_nova_to_all_fields\nrun_nova_to_all_fields(root_text=sys.argv[1], split_mode=(sys.argv[2].strip() or 'both'))", "{root}", "{mode}"]
+          "command": ["uv", "run", "python", "-X", "utf8", "-c", "import sys\nfrom custom_reports_to_report import run_nova_to_all_fields\nargs = sys.argv[1:]\nopts = dict(zip(args[1::2], args[2::2]))\nrun_nova_to_all_fields(root_text=args[0], split_mode=(opts.get('--mode', '').strip() or 'both'))", "{root}", {"args": ["--mode", "{mode}"], "omit_if_empty": true}]
         },
         {
           "id": "all-fields-export",
@@ -128,7 +128,7 @@
             {"key": "rules", "label": "导出规则文件路径（选填）", "type": "path", "required": false, "default": "", "placeholder": "留空则在程序目录自动查找 导出规则.xlsx / export_rules.json"},
             {"key": "sheet", "label": "要处理的 Sheet 名（选填）", "type": "text", "required": false, "default": "", "options_from": {"what": "sheets", "depends_on": ["all_fields"]}}
           ],
-          "command": ["uv", "run", "python", "-X", "utf8", "-c", "import sys\nfrom pathlib import Path\nfrom custom_reports_to_report.all_fields_export import run_all_fields_export\n\naf_text, rule_text, sheet = sys.argv[1], sys.argv[2].strip(), sys.argv[3].strip()\naf_path = Path(af_text)\nsheet_name = sheet or None\nif sheet_name is None:\n    import pandas as pd\n    names = list(pd.ExcelFile(af_path).sheet_names)\n    if len(names) > 1:\n        print('⚠ 该文件包含多个 Sheet：' + '、'.join(names))\n        print('⚠ 请在表单中填写要处理的 Sheet 名后重试。')\n        sys.exit(1)\nrun_all_fields_export(af_path=af_path, rule_path=Path(rule_text) if rule_text else None, sheet_name=sheet_name)", "{all_fields}", "{rules}", "{sheet}"]
+          "command": ["uv", "run", "python", "-X", "utf8", "-c", "import sys\nfrom pathlib import Path\nfrom custom_reports_to_report.all_fields_export import run_all_fields_export\n\nargs = sys.argv[1:]\naf_path = Path(args[0])\nopts = dict(zip(args[1::2], args[2::2]))\nrule_text = opts.get('--rules', '').strip()\nsheet_name = opts.get('--sheet', '').strip() or None\nif sheet_name is None:\n    import pandas as pd\n    names = list(pd.ExcelFile(af_path).sheet_names)\n    if len(names) > 1:\n        print('⚠ 该文件包含多个 Sheet：' + '、'.join(names))\n        print('⚠ 请在表单中填写要处理的 Sheet 名后重试。')\n        sys.exit(1)\nrun_all_fields_export(af_path=af_path, rule_path=Path(rule_text) if rule_text else None, sheet_name=sheet_name)", "{all_fields}", {"args": ["--rules", "{rules}"], "omit_if_empty": true}, {"args": ["--sheet", "{sheet}"], "omit_if_empty": true}]
         }
       ]
     },
