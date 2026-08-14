@@ -42,6 +42,22 @@ _status_lock = threading.Lock()
 _status_cache = None  # dict: tool_id -> check_status 结果；None 表示尚未就绪
 _status_checking = False
 
+# 前期准备阶段检查结果缓存：启动时后台线程执行 core.check_prepare()。
+# 就绪前 /api/prepare 返回 None（前端显示「准备检查中…」）
+_prepare_lock = threading.Lock()
+_prepare_cache = None  # dict: check_prepare() 结果；None 表示尚未就绪
+
+
+def _check_prepare_background() -> None:
+    """后台线程：执行一次前期准备阶段的环境检查并缓存结果。"""
+    global _prepare_cache
+    try:
+        with _prepare_lock:
+            _prepare_cache = core.check_prepare()
+        log("前期准备检查完成。")
+    except Exception as exc:
+        log(f"错误：前期准备检查失败：{exc}")
+
 # Hub 自更新状态：behind 为最近一次检查到的落后提交数；
 # updated=True 表示本次运行期间拉到了新版本（需重启生效，重启前保持 True）
 _hub_status = {"behind": None, "updated": False}
@@ -345,6 +361,17 @@ def _status_payload() -> dict:
     }
 
 
+def _prepare_payload() -> dict:
+    """组装 /api/prepare 响应：前期准备检查结果（未就绪时 ready=False）。"""
+    with _prepare_lock:
+        cache = dict(_prepare_cache) if _prepare_cache is not None else None
+    if cache is None:
+        return {"ready": False, "checks": None}
+    failed = [c for c in cache.values() if not c["ok"]]
+    return {"ready": True, "checks": cache, "passed": len(failed) == 0,
+            "failed_count": len(failed)}
+
+
 def _logs_payload(since: int) -> dict:
     """组装 /api/logs 响应：序号大于 since 的日志行 + 当前最大序号。"""
     with _log_lock:
@@ -470,6 +497,8 @@ class HubRequestHandler(BaseHTTPRequestHandler):
             self._send_index()
         elif parsed.path == "/api/status":
             self._send_json(_status_payload())
+        elif parsed.path == "/api/prepare":
+            self._send_json(_prepare_payload())
         elif parsed.path == "/api/tools":
             self._send_json(_tools_payload())
         elif parsed.path == "/api/jobs":
@@ -610,6 +639,8 @@ def serve(port: int, open_browser: bool = True, auto_refresh: bool = True) -> No
         threading.Thread(target=_refresh_all_background, daemon=True).start()
     else:
         threading.Thread(target=_check_status_background, daemon=True).start()
+    # 前期准备阶段环境检查（Python/Git/uv/GitHub/组织），后台并行执行
+    threading.Thread(target=_check_prepare_background, daemon=True).start()
 
     global _server
     server = ThreadingHTTPServer(("127.0.0.1", port), HubRequestHandler)

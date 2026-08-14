@@ -7,6 +7,7 @@
 import json
 import os
 import shutil
+import socket
 import subprocess
 import sys
 import threading
@@ -34,6 +35,130 @@ def load_tools() -> list:
         tool["path"] = str((ROOT / tool["dir"]).resolve())
         tools.append(tool)
     return tools
+
+
+# 组织名（用于提示加入组织 / 检查组织访问权限）
+ORG_NAME = "MA-Team-Automation"
+ORG_URL = f"https://github.com/{ORG_NAME}"
+GITHUB_URL = "https://github.com"
+
+# uv 官方安装命令（未安装 uv 时按平台给出，供前端展示/一键复制）
+UV_INSTALL_CMDS = {
+    "darwin": 'curl -LsSf https://astral.sh/uv/install.sh | sh',
+    "linux": 'curl -LsSf https://astral.sh/uv/install.sh | sh',
+    "win32": 'powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"',
+}
+
+# 各检查项的中文说明文案
+CHECK_LABELS = {
+    "python": "Python 运行环境",
+    "git": "Git 版本控制",
+    "uv": "uv 包管理器",
+    "github": "GitHub 连通性",
+    "login": "GitHub 账号登录",
+    "org": f"加入组织 {ORG_NAME}",
+}
+
+
+def _cmd_ok(cmd: list, timeout: int = 10) -> bool:
+    """运行命令并判断是否成功（returncode == 0）。"""
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True,
+                           encoding="utf-8", errors="replace", timeout=timeout)
+        return r.returncode == 0
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        return False
+
+
+def _github_reachable(timeout: float = 5.0) -> bool:
+    """通过 TCP 连接 github.com:443 判断 GitHub 是否可达。"""
+    try:
+        with socket.create_connection(("github.com", 443), timeout=timeout):
+            return True
+    except OSError:
+        return False
+
+
+def check_prepare() -> dict:
+    """前期准备阶段的环境检查（不修改任何文件，纯只读）。
+
+    依次检查：Python、Git、uv、GitHub 连通性、GitHub 登录配置、组织访问权限。
+    返回字典，每项含 ok（bool）、label（中文名）、detail（说明/提示）、
+    action（可选 {type, text, url|command}，供前端渲染操作按钮）。
+    """
+    result = {}
+
+    def _item(key: str, ok: bool, detail: str, action: dict | None = None) -> None:
+        result[key] = {
+            "ok": ok,
+            "label": CHECK_LABELS[key],
+            "detail": detail,
+            "action": action,
+        }
+
+    # 1. Python —— 当前进程即运行在 Python 上，校验解释器版本可用即可
+    if _cmd_ok([sys.executable, "--version"]):
+        _item("python", True, f"已安装（{sys.version.split()[0]}）")
+    else:
+        _item("python", False, "未检测到可用的 Python，请在 Lion Store 中搜索并安装 Python 3",
+              {"type": "store", "text": "在 Lion Store 下载"})
+
+    # 2. Git
+    if shutil.which("git") is not None:
+        _item("git", True, "已安装")
+    else:
+        _item("git", False, "未检测到 Git，请在 Lion Store 中搜索并安装 Git",
+              {"type": "store", "text": "在 Lion Store 下载"})
+
+    # 3. uv —— 未安装时直接给出官方安装命令
+    if shutil.which("uv") is not None:
+        _item("uv", True, "已安装")
+    else:
+        cmd = UV_INSTALL_CMDS.get(sys.platform, UV_INSTALL_CMDS["linux"])
+        _item("uv", False, "未检测到 uv，已为你准备一键安装命令",
+              {"type": "copy", "text": "复制安装命令", "command": cmd,
+               "hint": "粘贴到终端执行即可自动安装 uv"})
+
+    # 4. GitHub 连通性
+    if _github_reachable():
+        _item("github", True, "可以访问 github.com")
+    else:
+        _item("github", False, "无法访问 GitHub，请检查网络（可能需要代理）",
+              {"type": "open", "text": "打开 GitHub", "url": GITHUB_URL})
+
+    # 5. GitHub 登录 —— 检查 git 全局 user.name / user.email 是否已配置
+    name = subprocess.run(["git", "config", "--global", "user.name"],
+                          capture_output=True, text=True, encoding="utf-8",
+                          errors="replace").stdout.strip() if shutil.which("git") else ""
+    email = subprocess.run(["git", "config", "--global", "user.email"],
+                           capture_output=True, text=True, encoding="utf-8",
+                           errors="replace").stdout.strip() if shutil.which("git") else ""
+    if name and email:
+        _item("login", True, f"已配置（{name} <{email}>）")
+    else:
+        _item("login", False, "未配置 GitHub 账号，请先注册并完成登录",
+              {"type": "open", "text": "注册 GitHub", "url": GITHUB_URL})
+
+    # 6. 组织访问权限 —— 尝试访问组织内第一个工具的私有仓库
+    org_ok = False
+    org_detail = f"未确认是否已加入 {ORG_NAME} 组织"
+    tools = load_tools()
+    if tools:
+        repo = tools[0].get("repo", "")
+        if repo:
+            try:
+                r = subprocess.run(["git", "ls-remote", "--exit-code", repo, "HEAD"],
+                                   capture_output=True, text=True, encoding="utf-8",
+                                   errors="replace", timeout=20)
+                if r.returncode == 0:
+                    org_ok = True
+                    org_detail = f"已加入 {ORG_NAME} 组织，可访问工具仓库"
+            except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+                pass  # 网络不通或 git 缺失时保持未确认
+    _item("org", org_ok, org_detail,
+          {"type": "open", "text": "申请加入组织", "url": ORG_URL})
+
+    return result
 
 
 def _run_git(path: str, args: list, timeout: int = GIT_TIMEOUT) -> subprocess.CompletedProcess:

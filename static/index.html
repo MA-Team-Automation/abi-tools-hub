@@ -398,6 +398,54 @@
     color: var(--faint); font-size: 13.5px; text-align: center;
   }
 
+  /* ---------- 前期准备阶段检查面板 ---------- */
+  .prepare {
+    position: relative;
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 18px 22px;
+    margin: -8px 0 32px;
+    box-shadow: var(--shadow);
+    animation: rise 0.5s ease both;
+  }
+  .prepare-head {
+    display: flex; align-items: center; gap: 10px;
+    font-weight: 600; font-size: 15px; margin-bottom: 4px;
+  }
+  .prepare-head .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--red); flex: none; }
+  .prepare-sub { color: var(--muted); font-size: 12.5px; margin-bottom: 12px; }
+  .prepare-list { display: flex; flex-direction: column; gap: 8px; }
+  .prepare-item {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 14px; padding: 10px 14px;
+    border: 1px solid var(--border); border-radius: 12px;
+    background: #fbfbfa;
+  }
+  .prepare-item .p-texts { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+  .prepare-item .p-name { font-size: 13.5px; font-weight: 500; }
+  .prepare-item .p-detail { font-size: 12px; color: var(--muted); word-break: break-all; }
+  .prepare-item .p-detail code {
+    font-family: var(--mono); font-size: 11px; color: var(--accent-dark);
+    background: var(--accent-soft); padding: 1px 5px; border-radius: 5px;
+  }
+  .prepare-item .p-btn {
+    flex: none; border: none; border-radius: 9px;
+    background: var(--accent); color: #fff;
+    font-size: 12.5px; font-weight: 500; font-family: inherit;
+    padding: 7px 13px; cursor: pointer; white-space: nowrap;
+    transition: background 0.2s ease, transform 0.12s ease;
+  }
+  .prepare-item .p-btn:hover { background: var(--accent-dark); }
+  .prepare-item .p-btn:active { transform: scale(0.95); }
+  .prepare-item .p-btn.copied { background: var(--green); }
+  .prepare-close {
+    position: absolute; top: 14px; right: 14px;
+    border: none; background: none; color: var(--faint);
+    font-size: 17px; line-height: 1; cursor: pointer;
+    padding: 4px 6px; border-radius: 7px;
+    transition: color 0.2s ease, background 0.2s ease;
+  }
+  .prepare-close:hover { color: var(--muted); background: #f3f3f1; }
+
   /* ---------- 响应式 ---------- */
   @media (max-width: 720px) {
     .page { padding: 40px 18px 56px; }
@@ -449,6 +497,15 @@
       </div>
     </div>
   </header>
+
+  <!-- 前期准备阶段检查面板：环境未就绪时展示 -->
+  <section class="prepare" id="prepare-panel" hidden>
+    <button class="prepare-close" onclick="dismissPrepare()" aria-label="关闭">&times;</button>
+    <div class="prepare-head"><span class="dot"></span>前期准备未完成</div>
+    <p class="prepare-sub">请先完成以下环境配置，工具才能正常运行</p>
+    <div class="prepare-list" id="prepare-list"></div>
+  </section>
+
   <main class="grid" id="grid"></main>
 </div>
 
@@ -684,6 +741,63 @@ async function fetchStatus() {
       toast(`状态检查失败：${e.message}`);
     }
   }
+}
+
+/* ================= 前期准备阶段检查 ================= */
+let prepareDismissed = false;  // 手动关闭后本次会话不再自动弹出
+
+// 各检查项操作按钮的渲染与处理
+function prepareActionHtml(act) {
+  if (!act) return "";
+  if (act.type === "copy") {
+    return `<button class="p-btn" onclick="copyPrepareCmd(this)" data-cmd="${esc(act.command)}">${esc(act.text)}</button>`;
+  }
+  if (act.type === "open") {
+    return `<button class="p-btn" onclick="window.open('${esc(act.url)}','_blank','noopener')">${esc(act.text)}</button>`;
+  }
+  if (act.type === "store") {
+    return `<button class="p-btn" onclick="toast('请在 Lion Store 中搜索并安装对应软件')">${esc(act.text)}</button>`;
+  }
+  return "";
+}
+
+async function fetchPrepare() {
+  try {
+    const data = await apiGet("/api/prepare");
+    if (!data.ready || prepareDismissed) return;
+    if (data.passed) return;  // 全部通过则不展示
+    const checks = Object.values(data.checks).filter(c => !c.ok);
+    if (checks.length === 0) return;
+    el("prepare-list").innerHTML = checks.map(c => `
+      <div class="prepare-item">
+        <div class="p-texts">
+          <span class="p-name">${esc(c.label)}</span>
+          <span class="p-detail">${esc(c.detail)}</span>
+        </div>
+        ${prepareActionHtml(c.action)}
+      </div>`).join("");
+    el("prepare-panel").hidden = false;
+  } catch (e) { /* 面板未就绪时静默，下一轮再试 */ }
+}
+
+function dismissPrepare() {
+  prepareDismissed = true;
+  el("prepare-panel").hidden = true;
+}
+
+async function copyPrepareCmd(btn) {
+  const cmd = btn.getAttribute("data-cmd") || "";
+  try {
+    await navigator.clipboard.writeText(cmd);
+  } catch (e) {
+    // 剪贴板 API 不可用时降级：选中文本提示手动复制
+    toast(`请手动复制命令：${cmd}`);
+    return;
+  }
+  btn.classList.add("copied");
+  const original = btn.textContent;
+  btn.textContent = "已复制";
+  setTimeout(() => { btn.classList.remove("copied"); btn.textContent = original; }, 1800);
 }
 
 /* ---------- Hub 更新提示与重启 ---------- */
@@ -1092,13 +1206,17 @@ function setText(id, text) { const n = el(id); if (n) n.textContent = text; }
 route();
 fetchTools().then(renderCards).catch(e => toast(`加载工具列表失败：${e.message}`));
 fetchStatus();
+fetchPrepare();
 
 // 动态轮询：刷新进行中 1s 一次（进度跟手），平时 5s 一次
 let statusPollTimer = null;
 function scheduleStatusPoll() {
   clearTimeout(statusPollTimer);
   statusPollTimer = setTimeout(async () => {
-    if (!document.hidden) await fetchStatus();
+    if (!document.hidden) {
+      await fetchStatus();
+      fetchPrepare();
+    }
     scheduleStatusPoll();
   }, state.refreshing ? 1000 : 5000);
 }
